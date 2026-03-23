@@ -236,14 +236,27 @@ btnDeclickbait.addEventListener("click", async () => {
     // Inject content script via scripting API (works with activeTab)
     const isYouTube = _currentHostname === 'www.youtube.com';
     const scriptFile = isYouTube ? "content/youtube.js" : "content/content.js";
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      files: [scriptFile],
-    });
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: [scriptFile],
+      });
+    } catch (injectErr) {
+      console.error("[Unbait] Script injection failed:", injectErr);
+      statusEl.textContent = `Injection failed: ${injectErr.message}`;
+      statusEl.className = "status-msg error";
+      btnDeclickbait.disabled = false;
+      btnDeclickbait.classList.remove("processing");
+      btnDeclickbait.textContent = "De-clickbait!";
+      return;
+    }
     await chrome.scripting.insertCSS({
       target: { tabId: tab.id },
       files: ["content/content.css"],
     });
+
+    // Small delay for YouTube to let the script initialize
+    if (isYouTube) await new Promise((r) => setTimeout(r, 100));
 
     // Send de-clickbait message to content script
     const action = isYouTube ? 'de-clickbait-youtube' : 'de-clickbait';
