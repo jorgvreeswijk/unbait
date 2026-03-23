@@ -1,6 +1,17 @@
-// Prevent double-injection — wrap everything in this guard
+// Guard: only run setup once, but re-register message listener on re-injection
 if (window.__unbaitYouTubeLoaded) {
-  // Already loaded, skip
+  // Script already loaded — just make sure message listener is active
+  // (Chrome re-runs the script, so this new execution context needs a listener)
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.action === "de-clickbait-youtube") {
+      if (window.__unbaitYTProcess) {
+        window.__unbaitYTProcess().then(sendResponse).catch((e) => sendResponse({ error: e.message }));
+        return true;
+      }
+      sendResponse({ error: "YouTube script not ready." });
+      return true;
+    }
+  });
 } else {
 window.__unbaitYouTubeLoaded = true;
 
@@ -606,6 +617,9 @@ async function fetchAndApplyResults(
 // ---------------------------------------------------------------------------
 // Main: processYouTubeTitles
 // ---------------------------------------------------------------------------
+
+// Expose for re-injection access
+window.__unbaitYTProcess = processYouTubeTitles;
 
 async function processYouTubeTitles() {
   // YouTube loads content dynamically — wait for titles to appear
