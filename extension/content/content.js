@@ -120,11 +120,35 @@ async function processHeadlines() {
 
   try {
     console.log(`[Unbait] Sending ${uncachedData.length} headlines to service worker...`);
-    const response = await chrome.runtime.sendMessage({
-      action: "rewrite-headlines",
-      headlines: uncachedData,
-    });
+
+    // Use a timeout wrapper — Gemini batches can take a long time,
+    // but stream-results arrive per batch. If the full response times out,
+    // stream-results have already been applied.
+    let response;
+    try {
+      response = await Promise.race([
+        chrome.runtime.sendMessage({
+          action: "rewrite-headlines",
+          headlines: uncachedData,
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 120000)),
+      ]);
+    } catch (e) {
+      if (e.message === "timeout") {
+        console.warn("[Unbait] Response timed out, but stream-results may have been applied");
+        _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
+        return { success: true, found: headlines.length, count: _unbaitApplied.size };
+      }
+      throw e;
+    }
+
     console.log("[Unbait] Service worker response:", response);
+
+    if (!response) {
+      // Response was lost (e.g. service worker restarted) — stream-results may have been applied
+      _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
+      return { success: true, found: headlines.length, count: _unbaitApplied.size };
+    }
 
     if (response.error) {
       _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
