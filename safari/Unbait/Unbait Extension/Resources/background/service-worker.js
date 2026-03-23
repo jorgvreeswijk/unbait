@@ -593,8 +593,15 @@ function parseAndSendResults(text, tabId) {
  * Call OpenAI API (GPT-4o mini) with streaming.
  */
 async function callOpenAI(apiKey, headlines, tabId) {
-  const { systemPrompt, userPrompt } = buildPrompts(headlines);
   const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
+
+  // Safari: batch mode (non-streaming) in small batches to avoid SW timeout
+  if (isSafari) {
+    return callOpenAIBatched(apiKey, headlines, tabId);
+  }
+
+  // Chrome: streaming mode for best UX
+  const { systemPrompt, userPrompt } = buildPrompts(headlines);
 
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -605,7 +612,7 @@ async function callOpenAI(apiKey, headlines, tabId) {
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        stream: !isSafari,
+        stream: true,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -621,18 +628,6 @@ async function callOpenAI(apiKey, headlines, tabId) {
       return { error: `OpenAI error (${response.status}): ${err.error?.message || "Unknown error"}` };
     }
 
-    // Safari: use non-streaming to avoid service worker timeout killing the stream
-    if (isSafari) {
-      const data = await response.json();
-      const text = data.choices?.[0]?.message?.content || "";
-      try {
-        const results = parseAndSendResults(text, tabId);
-        return { results };
-      } catch {
-        return { error: "Could not parse OpenAI response." };
-      }
-    }
-
     const extractDelta = (event) =>
       event.choices?.[0]?.delta?.content || null;
     const allResults = await readSSEStream(response, extractDelta, tabId);
@@ -645,6 +640,59 @@ async function callOpenAI(apiKey, headlines, tabId) {
   } catch (err) {
     return { error: `OpenAI error: ${err.message}` };
   }
+}
+
+/**
+ * Safari-specific: process OpenAI in small non-streaming batches.
+ * Each batch completes quickly enough to avoid SW termination.
+ */
+async function callOpenAIBatched(apiKey, headlines, tabId) {
+  const BATCH_SIZE = 10;
+  const allResults = [];
+
+  for (let i = 0; i < headlines.length; i += BATCH_SIZE) {
+    const batch = headlines.slice(i, i + BATCH_SIZE);
+    const { systemPrompt, userPrompt } = buildPrompts(batch);
+
+    try {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          stream: false,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.3,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        if (response.status === 401) return { error: "Invalid OpenAI API key." };
+        if (response.status === 429) return { error: "Rate limit reached. Try again in a minute." };
+        return { error: `OpenAI error (${response.status}): ${err.error?.message || "Unknown error"}` };
+      }
+
+      const data = await response.json();
+      const text = data.choices?.[0]?.message?.content || "";
+      try {
+        const results = parseAndSendResults(text, tabId);
+        allResults.push(...results);
+      } catch {
+        // Skip unparseable batch
+      }
+    } catch (err) {
+      return { error: `OpenAI error: ${err.message}` };
+    }
+  }
+
+  return { results: allResults };
 }
 
 /**
