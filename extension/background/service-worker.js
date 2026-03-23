@@ -55,21 +55,41 @@ const CONFIG = {
 };
 
 // Always On: auto-trigger on page load for configured sites
+// Also: inject content script for cache restore on any previously de-clickbaited site
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== "complete" || !tab.url) return;
 
   try {
     const hostname = new URL(tab.url).hostname;
-    // autoSites in sync (not sensitive), apiKey in session (secure)
+
     Promise.all([
       chrome.storage.sync.get("autoSites"),
-      chrome.storage.local.get("apiKey"),
-    ]).then(([syncData, sessionData]) => {
+      chrome.storage.local.get(["apiKey", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini", "provider"]),
+    ]).then(async ([syncData, localData]) => {
       const autoSites = syncData.autoSites || [];
-      const apiKey = sessionData.apiKey;
-      if (!apiKey || !autoSites.includes(hostname)) return;
+      const provider = localData.provider || "anthropic";
+      const apiKey = localData[`apiKey_${provider}`] || localData.apiKey;
+      const isAlwaysOn = apiKey && autoSites.includes(hostname);
 
-      // Inject content script + CSS, then trigger
+      // Check if there are cached entries for this site's domain
+      let hasCachedEntries = false;
+      if (!isAlwaysOn) {
+        try {
+          const cacheKey = `unbait_cache_${provider}`;
+          const data = await chrome.storage.local.get(cacheKey);
+          const cache = data[cacheKey] || {};
+          hasCachedEntries = Object.keys(cache).some((url) => {
+            try { return new URL(url).hostname === hostname; } catch { return false; }
+          });
+        } catch {
+          // ignore cache check errors
+        }
+      }
+
+      if (!isAlwaysOn && !hasCachedEntries) return;
+
+      // Inject content script + CSS
+      // The content script auto-restores cached titles on load
       chrome.scripting.executeScript({
         target: { tabId },
         files: ["content/content.js"],
@@ -78,9 +98,13 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
           target: { tabId },
           files: ["content/content.css"],
         });
-        setTimeout(() => {
-          chrome.tabs.sendMessage(tabId, { action: "de-clickbait" }).catch(() => {});
-        }, CONFIG.AUTO_TRIGGER_DELAY_MS);
+
+        // Only trigger full de-clickbait for Always On sites
+        if (isAlwaysOn) {
+          setTimeout(() => {
+            chrome.tabs.sendMessage(tabId, { action: "de-clickbait" }).catch(() => {});
+          }, CONFIG.AUTO_TRIGGER_DELAY_MS);
+        }
       }).catch((e) => console.debug("[Unbait] Auto-inject failed:", e.message));
     });
   } catch {

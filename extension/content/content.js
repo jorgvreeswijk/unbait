@@ -19,10 +19,45 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-// Restore icons after back/forward navigation (bfcache)
+// Restore cached titles after back/forward navigation (bfcache)
 window.addEventListener("pageshow", (event) => {
   if (event.persisted) restoreIcons();
 });
+
+// Auto-restore cached titles on page load (for back navigation without bfcache)
+restoreCachedTitles();
+
+/**
+ * Auto-restore cached titles on page load.
+ * Scans all headlines on the page and applies cached titles if found.
+ * This runs automatically when the content script loads, so previously
+ * de-clickbaited pages show their improved titles after back-navigation.
+ */
+async function restoreCachedTitles() {
+  try {
+    const headlines = findHeadlines();
+    if (headlines.length === 0) return;
+
+    const provider = await getCurrentProvider();
+    const cache = await getCache(provider);
+    if (!cache || Object.keys(cache).length === 0) return;
+
+    let restoredCount = 0;
+    for (const item of headlines) {
+      const cached = cache[item.url];
+      if (cached && cached.newTitle && Date.now() - cached.ts < CONFIG.CACHE_MAX_AGE_MS) {
+        renderReplacedHeadline(item.element, cached.newTitle, item.text);
+        restoredCount++;
+      }
+    }
+
+    if (restoredCount > 0) {
+      console.log(`[Unbait] Restored ${restoredCount} cached titles`);
+    }
+  } catch {
+    // Silently fail — this is a best-effort restore
+  }
+}
 
 function restoreIcons() {
   document.querySelectorAll(".unbait-replaced").forEach((el) => {
