@@ -494,20 +494,60 @@ hr {
 }
 
 /* YouTube Mode section */
-#youtube-section input[type="checkbox"] {
-  accent-color: #0d9488;
-  width: 16px;
-  height: 16px;
+.yt-section {
+  background: #f0fdfa;
+  border: 1px solid #ccfbf1;
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
 }
 
-#youtube-section label {
+.yt-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
   font-size: 0.9rem;
+  color: #1f2937;
+}
+
+.yt-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #0d9488;
+  background: #ccfbf1;
+  padding: 1px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-left: auto;
+}
+
+.yt-toggles {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.yt-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  font-size: 0.82rem;
   color: #374151;
 }
 
-#youtube-section h3 {
-  font-size: 0.95rem;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-  color: #1f2937;
+.yt-checkbox {
+  accent-color: #0d9488;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+.yt-warning {
+  color: #b45309;
+  font-size: 0.75rem;
+  margin-top: 0.4rem;
+  line-height: 1.3;
 }

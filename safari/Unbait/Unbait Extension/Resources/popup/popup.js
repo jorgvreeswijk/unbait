@@ -234,9 +234,11 @@ btnDeclickbait.addEventListener("click", async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
     // Inject content script via scripting API (works with activeTab)
+    const isYouTube = _currentHostname === 'www.youtube.com';
+    const scriptFile = isYouTube ? "content/youtube.js" : "content/content.js";
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      files: ["content/content.js"],
+      files: [scriptFile],
     });
     await chrome.scripting.insertCSS({
       target: { tabId: tab.id },
@@ -244,7 +246,7 @@ btnDeclickbait.addEventListener("click", async () => {
     });
 
     // Send de-clickbait message to content script
-    const action = _currentHostname === 'www.youtube.com' ? 'de-clickbait-youtube' : 'de-clickbait';
+    const action = isYouTube ? 'de-clickbait-youtube' : 'de-clickbait';
     const response = await chrome.tabs.sendMessage(tab.id, {
       action,
     });
