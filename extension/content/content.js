@@ -13,6 +13,36 @@ if (!window.__unbaitLoaded) {
   });
 }
 
+// Restore icons after back/forward navigation (bfcache)
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) restoreIcons();
+});
+
+function restoreIcons() {
+  document.querySelectorAll(".unbait-replaced").forEach((el) => {
+    if (!el.parentNode?.querySelector(".unbait-icon") && el.dataset.unbaitNew) {
+      const icon = document.createElement("span");
+      icon.className = "unbait-icon";
+      icon.title = "Click to show original";
+      icon.setAttribute("role", "button");
+      icon.setAttribute("tabindex", "0");
+      icon.setAttribute("aria-label", "Toggle original headline");
+      icon.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleTitle(el, icon);
+      });
+      icon.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          icon.click();
+        }
+      });
+      el.parentNode.insertBefore(icon, el.nextSibling);
+    }
+  });
+}
+
 const CONFIG = {
   CACHE_MAX_AGE_MS: 7 * 24 * 60 * 60 * 1000,
   CACHE_MAX_ENTRIES: 500,
