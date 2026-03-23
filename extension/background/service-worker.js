@@ -546,9 +546,9 @@ async function callOpenAI(apiKey, headlines, tabId) {
  * Splits headlines into small batches to stay within free tier token limits.
  */
 async function callGemini(apiKey, headlines, tabId) {
-  const BATCH_SIZE = 5;
-  const BATCH_DELAY = 1500; // 1.5s between batches to avoid rate limits
-  const MAX_RETRIES = 2;
+  const BATCH_SIZE = 15; // Larger batches — fewer API calls to stay within free tier
+  const BATCH_DELAY = 4500; // 4.5s between batches (free tier = 15 req/min)
+  const MAX_RETRIES = 3;
   const allResults = [];
   console.log(`[Unbait] Gemini: processing ${headlines.length} headlines in ${Math.ceil(headlines.length / BATCH_SIZE)} batches`);
 
@@ -585,8 +585,9 @@ async function callGemini(apiKey, headlines, tabId) {
           const err = await response.json().catch(() => ({}));
           if (response.status === 429 && retries < MAX_RETRIES) {
             retries++;
-            console.log(`[Unbait] Gemini 429 rate limit, retry ${retries}/${MAX_RETRIES}...`);
-            await new Promise((r) => setTimeout(r, 5000 * retries));
+            const wait = 10000 * retries; // 10s, 20s, 30s backoff
+            console.log(`[Unbait] Gemini 429 rate limit, retry ${retries}/${MAX_RETRIES} in ${wait/1000}s...`);
+            await new Promise((r) => setTimeout(r, wait));
             continue;
           }
           if (response.status === 429) {
