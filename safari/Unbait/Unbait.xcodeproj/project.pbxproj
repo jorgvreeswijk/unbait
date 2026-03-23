@@ -1,0 +1,613 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		09D4D8ED2F7089EE00DC095F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09D4D8EC2F7089EE00DC095F /* AppDelegate.swift */; };
+		09D4D8F12F7089EF00DC095F /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 09D4D8EF2F7089EF00DC095F /* Main.html */; };
+		09D4D8F32F7089EF00DC095F /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 09D4D8F22F7089EF00DC095F /* Icon.png */; };
+		09D4D8F52F7089EF00DC095F /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 09D4D8F42F7089EF00DC095F /* Style.css */; };
+		09D4D8F72F7089EF00DC095F /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 09D4D8F62F7089EF00DC095F /* Script.js */; };
+		09D4D8F92F7089EF00DC095F /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09D4D8F82F7089EF00DC095F /* ViewController.swift */; };
+		09D4D8FC2F7089EF00DC095F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 09D4D8FA2F7089EF00DC095F /* Main.storyboard */; };
+		09D4D8FE2F7089F000DC095F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 09D4D8FD2F7089F000DC095F /* Assets.xcassets */; };
+		09D4D9052F7089F000DC095F /* Unbait Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 09D4D9042F7089F000DC095F /* Unbait Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		09D4D90A2F7089F000DC095F /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09D4D9092F7089F000DC095F /* SafariWebExtensionHandler.swift */; };
+		09D4D91B2F7089F100DC095F /* background in Resources */ = {isa = PBXBuildFile; fileRef = 09D4D9162F7089F100DC095F /* background */; };
+		09D4D91C2F7089F100DC095F /* popup in Resources */ = {isa = PBXBuildFile; fileRef = 09D4D9172F7089F100DC095F /* popup */; };
+		09D4D91D2F7089F100DC095F /* content in Resources */ = {isa = PBXBuildFile; fileRef = 09D4D9182F7089F100DC095F /* content */; };
+		09D4D91E2F7089F100DC095F /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 09D4D9192F7089F100DC095F /* icons */; };
+		09D4D91F2F7089F100DC095F /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 09D4D91A2F7089F100DC095F /* manifest.json */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		09D4D9062F7089F000DC095F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 09D4D8E12F7089EE00DC095F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 09D4D9032F7089F000DC095F;
+			remoteInfo = "Unbait Extension";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		09D4D9112F7089F000DC095F /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				09D4D9052F7089F000DC095F /* Unbait Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		09D4D8E92F7089EE00DC095F /* Unbait.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Unbait.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		09D4D8EC2F7089EE00DC095F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		09D4D8F02F7089EF00DC095F /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
+		09D4D8F22F7089EF00DC095F /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
+		09D4D8F42F7089EF00DC095F /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
+		09D4D8F62F7089EF00DC095F /* Script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Script.js; sourceTree = "<group>"; };
+		09D4D8F82F7089EF00DC095F /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
+		09D4D8FB2F7089EF00DC095F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		09D4D8FD2F7089F000DC095F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		09D4D8FF2F7089F000DC095F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		09D4D9042F7089F000DC095F /* Unbait Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Unbait Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		09D4D9092F7089F000DC095F /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
+		09D4D90B2F7089F000DC095F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		09D4D9162F7089F100DC095F /* background */ = {isa = PBXFileReference; lastKnownFileType = folder; name = background; path = Resources/background; sourceTree = "<group>"; };
+		09D4D9172F7089F100DC095F /* popup */ = {isa = PBXFileReference; lastKnownFileType = folder; name = popup; path = Resources/popup; sourceTree = "<group>"; };
+		09D4D9182F7089F100DC095F /* content */ = {isa = PBXFileReference; lastKnownFileType = folder; name = content; path = Resources/content; sourceTree = "<group>"; };
+		09D4D9192F7089F100DC095F /* icons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = icons; path = Resources/icons; sourceTree = "<group>"; };
+		09D4D91A2F7089F100DC095F /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = Resources/manifest.json; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		09D4D8E62F7089EE00DC095F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		09D4D9012F7089F000DC095F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		09D4D8E02F7089EE00DC095F = {
+			isa = PBXGroup;
+			children = (
+				09D4D8EB2F7089EE00DC095F /* Unbait */,
+				09D4D9082F7089F000DC095F /* Unbait Extension */,
+				09D4D8EA2F7089EE00DC095F /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		09D4D8EA2F7089EE00DC095F /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				09D4D8E92F7089EE00DC095F /* Unbait.app */,
+				09D4D9042F7089F000DC095F /* Unbait Extension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		09D4D8EB2F7089EE00DC095F /* Unbait */ = {
+			isa = PBXGroup;
+			children = (
+				09D4D8EC2F7089EE00DC095F /* AppDelegate.swift */,
+				09D4D8F82F7089EF00DC095F /* ViewController.swift */,
+				09D4D8FA2F7089EF00DC095F /* Main.storyboard */,
+				09D4D8FD2F7089F000DC095F /* Assets.xcassets */,
+				09D4D8FF2F7089F000DC095F /* Info.plist */,
+				09D4D8EE2F7089EF00DC095F /* Resources */,
+			);
+			path = Unbait;
+			sourceTree = "<group>";
+		};
+		09D4D8EE2F7089EF00DC095F /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				09D4D8EF2F7089EF00DC095F /* Main.html */,
+				09D4D8F22F7089EF00DC095F /* Icon.png */,
+				09D4D8F42F7089EF00DC095F /* Style.css */,
+				09D4D8F62F7089EF00DC095F /* Script.js */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		09D4D9082F7089F000DC095F /* Unbait Extension */ = {
+			isa = PBXGroup;
+			children = (
+				09D4D9152F7089F100DC095F /* Resources */,
+				09D4D9092F7089F000DC095F /* SafariWebExtensionHandler.swift */,
+				09D4D90B2F7089F000DC095F /* Info.plist */,
+			);
+			path = "Unbait Extension";
+			sourceTree = "<group>";
+		};
+		09D4D9152F7089F100DC095F /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				09D4D9162F7089F100DC095F /* background */,
+				09D4D9172F7089F100DC095F /* popup */,
+				09D4D9182F7089F100DC095F /* content */,
+				09D4D9192F7089F100DC095F /* icons */,
+				09D4D91A2F7089F100DC095F /* manifest.json */,
+			);
+			name = Resources;
+			path = "Unbait Extension";
+			sourceTree = SOURCE_ROOT;
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		09D4D8E82F7089EE00DC095F /* Unbait */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 09D4D9122F7089F000DC095F /* Build configuration list for PBXNativeTarget "Unbait" */;
+			buildPhases = (
+				09D4D8E52F7089EE00DC095F /* Sources */,
+				09D4D8E62F7089EE00DC095F /* Frameworks */,
+				09D4D8E72F7089EE00DC095F /* Resources */,
+				09D4D9112F7089F000DC095F /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				09D4D9072F7089F000DC095F /* PBXTargetDependency */,
+			);
+			name = Unbait;
+			packageProductDependencies = (
+			);
+			productName = Unbait;
+			productReference = 09D4D8E92F7089EE00DC095F /* Unbait.app */;
+			productType = "com.apple.product-type.application";
+		};
+		09D4D9032F7089F000DC095F /* Unbait Extension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 09D4D90E2F7089F000DC095F /* Build configuration list for PBXNativeTarget "Unbait Extension" */;
+			buildPhases = (
+				09D4D9002F7089F000DC095F /* Sources */,
+				09D4D9012F7089F000DC095F /* Frameworks */,
+				09D4D9022F7089F000DC095F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Unbait Extension";
+			packageProductDependencies = (
+			);
+			productName = "Unbait Extension";
+			productReference = 09D4D9042F7089F000DC095F /* Unbait Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		09D4D8E12F7089EE00DC095F /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2630;
+				LastUpgradeCheck = 2630;
+				TargetAttributes = {
+					09D4D8E82F7089EE00DC095F = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					09D4D9032F7089F000DC095F = {
+						CreatedOnToolsVersion = 26.3;
+					};
+				};
+			};
+			buildConfigurationList = 09D4D8E42F7089EE00DC095F /* Build configuration list for PBXProject "Unbait" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 09D4D8E02F7089EE00DC095F;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 09D4D8EA2F7089EE00DC095F /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				09D4D8E82F7089EE00DC095F /* Unbait */,
+				09D4D9032F7089F000DC095F /* Unbait Extension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		09D4D8E72F7089EE00DC095F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				09D4D8F32F7089EF00DC095F /* Icon.png in Resources */,
+				09D4D8FC2F7089EF00DC095F /* Main.storyboard in Resources */,
+				09D4D8F72F7089EF00DC095F /* Script.js in Resources */,
+				09D4D8F12F7089EF00DC095F /* Main.html in Resources */,
+				09D4D8FE2F7089F000DC095F /* Assets.xcassets in Resources */,
+				09D4D8F52F7089EF00DC095F /* Style.css in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		09D4D9022F7089F000DC095F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				09D4D91D2F7089F100DC095F /* content in Resources */,
+				09D4D91E2F7089F100DC095F /* icons in Resources */,
+				09D4D91F2F7089F100DC095F /* manifest.json in Resources */,
+				09D4D91B2F7089F100DC095F /* background in Resources */,
+				09D4D91C2F7089F100DC095F /* popup in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		09D4D8E52F7089EE00DC095F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				09D4D8F92F7089EF00DC095F /* ViewController.swift in Sources */,
+				09D4D8ED2F7089EE00DC095F /* AppDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		09D4D9002F7089F000DC095F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				09D4D90A2F7089F000DC095F /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		09D4D9072F7089F000DC095F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 09D4D9032F7089F000DC095F /* Unbait Extension */;
+			targetProxy = 09D4D9062F7089F000DC095F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		09D4D8EF2F7089EF00DC095F /* Main.html */ = {
+			isa = PBXVariantGroup;
+			children = (
+				09D4D8F02F7089EF00DC095F /* Base */,
+			);
+			name = Main.html;
+			sourceTree = "<group>";
+		};
+		09D4D8FA2F7089EF00DC095F /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				09D4D8FB2F7089EF00DC095F /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		09D4D90C2F7089F000DC095F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		09D4D90D2F7089F000DC095F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		09D4D90F2F7089F000DC095F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Unbait Extension/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Unbait Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.yourCompany.Unbait.Extension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		09D4D9102F7089F000DC095F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Unbait Extension/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Unbait Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.yourCompany.Unbait.Extension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		09D4D9132F7089F000DC095F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Unbait/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Unbait;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.yourCompany.Unbait;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		09D4D9142F7089F000DC095F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Unbait/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Unbait;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.yourCompany.Unbait;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		09D4D8E42F7089EE00DC095F /* Build configuration list for PBXProject "Unbait" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				09D4D90C2F7089F000DC095F /* Debug */,
+				09D4D90D2F7089F000DC095F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		09D4D90E2F7089F000DC095F /* Build configuration list for PBXNativeTarget "Unbait Extension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				09D4D90F2F7089F000DC095F /* Debug */,
+				09D4D9102F7089F000DC095F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		09D4D9122F7089F000DC095F /* Build configuration list for PBXNativeTarget "Unbait" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				09D4D9132F7089F000DC095F /* Debug */,
+				09D4D9142F7089F000DC095F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 09D4D8E12F7089EE00DC095F /* Project object */;
+}

@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unbait - See what articles are really about</title>
+  <style>
+    :root {
+      --teal: #0d9488;
+      --teal-light: #ccfbf1;
+      --teal-dark: #0f766e;
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-400: #9ca3af;
+      --gray-500: #6b7280;
+      --gray-600: #4b5563;
+      --gray-700: #374151;
+      --gray-800: #1f2937;
+      --gray-900: #111827;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--gray-800);
+      line-height: 1.6;
+      background: white;
+    }
+
+    /* Nav */
+    nav {
+      position: fixed;
+      top: 0;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--gray-100);
+      z-index: 100;
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      text-decoration: none;
+      color: var(--gray-900);
+    }
+
+    .nav-logo svg {
+      width: 32px;
+      height: 32px;
+    }
+
+    .nav-logo span {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--gray-700);
+      margin-left: -1px;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 2rem;
+      align-items: center;
+    }
+
+    .nav-links a {
+      text-decoration: none;
+      color: var(--gray-600);
+      font-size: 0.95rem;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover { color: var(--teal); }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.6rem 1.25rem;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.95rem;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: var(--teal);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--teal-dark);
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: var(--gray-100);
+      color: var(--gray-700);
+    }
+
+    .btn-secondary:hover {
+      background: var(--gray-200, #e5e7eb);
+    }
+
+    /* Hero */
+    .hero {
+      padding: 8rem 2rem 4rem;
+      max-width: 900px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .hero h1 {
+      font-size: 3.5rem;
+      font-weight: 800;
+      line-height: 1.1;
+      color: var(--gray-900);
+      margin-bottom: 1.5rem;
+    }
+
+    .hero h1 em {
+      font-style: normal;
+      color: var(--teal);
+    }
+
+    .hero p {
+      font-size: 1.25rem;
+      color: var(--gray-500);
+      max-width: 600px;
+      margin: 0 auto 2.5rem;
+    }
+
+    .hero-buttons {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    /* Demo */
+    .demo {
+      max-width: 700px;
+      margin: 0 auto 4rem;
+      padding: 0 2rem;
+    }
+
+    .demo-card {
+      background: var(--gray-50);
+      border: 1px solid var(--gray-100);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .demo-header {
+      padding: 1rem 1.5rem;
+      background: var(--gray-100);
+      font-size: 0.8rem;
+      color: var(--gray-400);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .demo-row {
+      display: flex;
+      align-items: center;
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--gray-100);
+      gap: 1rem;
+    }
+
+    .demo-row:last-child { border-bottom: none; }
+
+    .demo-arrow {
+      color: var(--teal);
+      font-size: 1.25rem;
+      flex-shrink: 0;
+    }
+
+    .demo-before {
+      color: var(--gray-400);
+      text-decoration: line-through;
+      flex: 1;
+      font-size: 0.95rem;
+    }
+
+    .demo-after {
+      color: var(--gray-800);
+      font-weight: 600;
+      flex: 1;
+      font-size: 0.95rem;
+    }
+
+    .demo-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      background: var(--teal);
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .demo-badge svg {
+      width: 11px;
+      height: 11px;
+    }
+
+    /* Sections */
+    section {
+      padding: 4rem 2rem;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    section h2 {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      color: var(--gray-900);
+    }
+
+    /* Features */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 2rem;
+      margin-top: 2rem;
+    }
+
+    .feature {
+      padding: 1.5rem;
+      background: var(--gray-50);
+      border-radius: 12px;
+      border: 1px solid var(--gray-100);
+    }
+
+    .feature-icon {
+      width: 40px;
+      height: 40px;
+      background: var(--teal-light);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+      color: var(--teal);
+    }
+
+    .feature h3 {
+      font-size: 1.1rem;
+      margin-bottom: 0.5rem;
+      color: var(--gray-800);
+    }
+
+    .feature p {
+      font-size: 0.95rem;
+      color: var(--gray-500);
+    }
+
+    /* How it works */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 2rem;
+      margin-top: 2rem;
+    }
+
+    .step {
+      text-align: center;
+      padding: 1.5rem;
+    }
+
+    .step-number {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--teal-light);
+      color: var(--teal);
+      font-weight: 700;
+      font-size: 1.25rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+
+    .step h3 {
+      font-size: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .step p {
+      font-size: 0.9rem;
+      color: var(--gray-500);
+    }
+
+    /* Honest section */
+    .honest {
+      background: var(--gray-50);
+      border-radius: 12px;
+      padding: 2.5rem;
+      margin-top: 2rem;
+      border: 1px solid var(--gray-100);
+    }
+
+    .honest h3 {
+      font-size: 1.1rem;
+      margin-bottom: 0.5rem;
+      color: var(--gray-800);
+    }
+
+    .honest p {
+      font-size: 0.95rem;
+      color: var(--gray-500);
+      margin-bottom: 1rem;
+    }
+
+    .honest p:last-child { margin-bottom: 0; }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 3rem 2rem;
+      color: var(--gray-400);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--gray-100);
+      margin-top: 4rem;
+    }
+
+    footer a {
+      color: var(--teal);
+      text-decoration: none;
+    }
+
+    /* Responsive */
+    @media (max-width: 640px) {
+      .hero h1 { font-size: 2.25rem; }
+      .hero p { font-size: 1.1rem; }
+      nav { padding: 0.75rem 1rem; }
+      .nav-links { gap: 1rem; }
+      .demo-row { flex-direction: column; gap: 0.5rem; }
+      .demo-before, .demo-after { flex: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <a href="#" class="nav-logo">
+      <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="16" cy="16" r="15" fill="#0d9488"/>
+        <text x="16" y="16" text-anchor="middle" dominant-baseline="central" font-family="-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif" font-size="19" font-weight="800" fill="white">U</text>
+      </svg>
+      <span>nbait</span>
+    </a>
+    <div class="nav-links">
+      <a href="#how-it-works">How it works</a>
+      <a href="#features">Features</a>
+      <a href="https://github.com/jorgvreeswijk/unbait" class="btn btn-secondary">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <h1>See what articles are <em>really</em> about</h1>
+    <p>Unbait replaces vague, clickbait headlines with clear, informative titles using AI. Stop clicking articles that waste your time.</p>
+    <div class="hero-buttons">
+      <a href="https://github.com/jorgvreeswijk/unbait/releases" class="btn btn-primary">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download
+      </a>
+      <a href="https://github.com/jorgvreeswijk/unbait" class="btn btn-secondary">View source</a>
+    </div>
+  </section>
+
+  <div class="demo">
+    <div class="demo-card">
+      <div class="demo-header">Before &amp; After</div>
+      <div class="demo-row">
+        <span class="demo-before">Hiermee kan je werkelijk overal online werken zonder stopcontact</span>
+        <span class="demo-arrow">&rarr;</span>
+        <span class="demo-after">Starlink Mini: overal online werken zonder stopcontact</span>
+        <span class="demo-badge"><svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><text x="16" y="16" text-anchor="middle" dominant-baseline="central" font-family="Arial" font-size="22" font-weight="800" fill="white">U</text></svg></span>
+      </div>
+      <div class="demo-row">
+        <span class="demo-before">Dit boek is het eerste boek dat door AI nooit zal verschijnen</span>
+        <span class="demo-arrow">&rarr;</span>
+        <span class="demo-after">Shy Girl van Mia Ballard niet uitgebracht wegens AI-controverse</span>
+        <span class="demo-badge"><svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><text x="16" y="16" text-anchor="middle" dominant-baseline="central" font-family="Arial" font-size="22" font-weight="800" fill="white">U</text></svg></span>
+      </div>
+      <div class="demo-row">
+        <span class="demo-before">Zo voorkom je een boete voor het filmen van een verkeersongeluk</span>
+        <span class="demo-arrow">&rarr;</span>
+        <span class="demo-after">Boete voor het filmen van verkeersongeluk: dit kost het</span>
+        <span class="demo-badge"><svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><text x="16" y="16" text-anchor="middle" dominant-baseline="central" font-family="Arial" font-size="22" font-weight="800" fill="white">U</text></svg></span>
+      </div>
+    </div>
+  </div>
+
+  <section id="how-it-works">
+    <h2>How it works</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-number">1</div>
+        <h3>Scan the page</h3>
+        <p>Unbait finds all article headlines on the page you're viewing.</p>
+      </div>
+      <div class="step">
+        <div class="step-number">2</div>
+        <h3>Read the article</h3>
+        <p>For each headline, it briefly fetches the article to understand the actual content.</p>
+      </div>
+      <div class="step">
+        <div class="step-number">3</div>
+        <h3>Rewrite if needed</h3>
+        <p>AI rewrites vague or misleading headlines into clear, specific titles. Good headlines stay unchanged.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <h2>Features</h2>
+    <div class="features">
+      <div class="feature">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <h3>Always On mode</h3>
+        <p>Enable per-site automatic de-clickbaiting. Headlines are rewritten as soon as you visit the page.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </div>
+        <h3>Original always visible</h3>
+        <p>Click the Unbait icon next to any title to toggle back to the original headline.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </div>
+        <h3>Privacy first</h3>
+        <p>Your API key stays on your device. Article text is sent directly to Anthropic over HTTPS, never through a third-party server.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        </div>
+        <h3>Smart caching</h3>
+        <p>Rewritten titles are cached locally so repeated visits are instant, no extra API calls.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        </div>
+        <h3>Works on any site</h3>
+        <p>Enable for any news site, tech blog, or content aggregator. You control which sites Unbait runs on.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <h3>Selective rewriting</h3>
+        <p>Only clickbait headlines get rewritten. Clear, informative titles are left untouched.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Being honest</h2>
+    <div class="honest">
+      <h3>AI titles are interpretations</h3>
+      <p>AI-generated titles are the model's best guess, not objective truths. Nuance can get lost, or the AI may emphasize a detail that isn't the main point. You're trading the editor's sensationalism for an algorithm's interpretation. The original title is always one click away.</p>
+
+      <h3>The curiosity gap</h3>
+      <p>Clickbait exploits the curiosity gap: the space between what you know and what you want to know. A clear title closes that gap, letting you decide calmly whether to read on.</p>
+
+      <h3>Limitations</h3>
+      <p>Unbait needs to briefly fetch each article. Articles behind login walls or paywalls cannot be read, so those headlines stay unchanged.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Getting started</h2>
+    <div class="honest">
+      <h3>1. Install the extension</h3>
+      <p>Download from <a href="https://github.com/jorgvreeswijk/unbait/releases">GitHub Releases</a> and load it in Chrome (Settings &rarr; Extensions &rarr; Load unpacked) or Safari.</p>
+
+      <h3>2. Get an API key</h3>
+      <p>Unbait uses the Anthropic API. Sign up at <a href="https://console.anthropic.com">console.anthropic.com</a>, add billing ($5 minimum), and create an API key under Settings &rarr; API Keys.</p>
+
+      <h3>3. Set a spending limit</h3>
+      <p>Create a workspace at <a href="https://console.anthropic.com/settings/workspaces">console.anthropic.com/settings/workspaces</a> and set a monthly spending limit under Settings &rarr; Limits to avoid unexpected charges.</p>
+
+      <h3>4. Paste your key and go</h3>
+      <p>Click the Unbait icon in your browser toolbar, paste your API key, and click "Unbait!" or enable Always On for your favorite sites.</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>Unbait is open-source and free. Built by <a href="https://github.com/jorgvreeswijk">Jorg Vreeswijk</a>.</p>
+    <p style="margin-top: 0.5rem;">Provided as-is, without warranty. The author is not responsible for any costs or damages resulting from use.</p>
+  </footer>
+
+</body>
+</html>

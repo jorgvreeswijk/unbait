@@ -1,0 +1,403 @@
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Verify sender is from our own extension or a valid tab
+  if (sender.id !== chrome.runtime.id) return;
+
+  if (message.action === "rewrite-headlines") {
+    handleRewrite(message.headlines, sender.tab?.id).then(sendResponse);
+    return true; // async response
+  }
+});
+
+// Always On: auto-trigger on page load for configured sites
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== "complete" || !tab.url) return;
+
+  try {
+    const hostname = new URL(tab.url).hostname;
+    // autoSites in sync (not sensitive), apiKey in session (secure)
+    Promise.all([
+      chrome.storage.sync.get("autoSites"),
+      chrome.storage.local.get("apiKey"),
+    ]).then(([syncData, sessionData]) => {
+      const autoSites = syncData.autoSites || [];
+      const apiKey = sessionData.apiKey;
+      if (!apiKey || !autoSites.includes(hostname)) return;
+
+      // Inject content script + CSS, then trigger
+      chrome.scripting.executeScript({
+        target: { tabId },
+        files: ["content/content.js"],
+      }).then(() => {
+        chrome.scripting.insertCSS({
+          target: { tabId },
+          files: ["content/content.css"],
+        });
+        setTimeout(() => {
+          chrome.tabs.sendMessage(tabId, { action: "de-clickbait" }).catch(() => {});
+        }, 500);
+      }).catch(() => {});
+    });
+  } catch {
+    // invalid URL, skip
+  }
+});
+
+async function handleRewrite(headlines, tabId) {
+  const { apiKey } = await chrome.storage.local.get("apiKey");
+  if (!apiKey) {
+    return { error: "No API key set. Open the Unbait popup to enter your key." };
+  }
+
+  // Fast partial fetch for context (only og:description from <head>)
+  const enriched = await enrichWithContext(headlines);
+
+  // Call Claude API with streaming for progressive results
+  return await callClaudeStreaming(apiKey, enriched, tabId);
+}
+
+/**
+ * Context fetching: read the first ~32KB of each page (enough for <head> + article body).
+ * Extract meta description + first paragraphs for rich context.
+ */
+async function enrichWithContext(headlines) {
+  const CONCURRENCY = 10;
+  const TIMEOUT = 6000;
+  const MAX_BYTES = 131072; // 128KB — enough to reach article body on heavy sites
+  const results = [];
+
+  for (let i = 0; i < headlines.length; i += CONCURRENCY) {
+    const batch = headlines.slice(i, i + CONCURRENCY);
+    const promises = batch.map(async (h) => {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT);
+        const resp = await fetch(h.url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (!resp.ok) return { ...h, context: "" };
+
+        // Read first ~32KB (enough for <head> + article body)
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let html = "";
+        let bytesRead = 0;
+
+        while (bytesRead < MAX_BYTES) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          html += decoder.decode(value, { stream: true });
+          bytesRead += value.length;
+        }
+        reader.cancel();
+
+        const context = extractContext(html);
+        return { ...h, context };
+      } catch {
+        return { ...h, context: "" };
+      }
+    });
+    results.push(...(await Promise.all(promises)));
+  }
+
+  return results;
+}
+
+/**
+ * Decode common HTML entities.
+ */
+function decodeEntities(str) {
+  return str
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Extract meta description from HTML <head>.
+ */
+function extractMetaDescription(html) {
+  const ogMatch = html.match(
+    /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i
+  );
+  const ogMatch2 = html.match(
+    /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i
+  );
+  const metaMatch = html.match(
+    /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i
+  );
+  const metaMatch2 = html.match(
+    /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i
+  );
+
+  return (ogMatch?.[1] || ogMatch2?.[1] || metaMatch?.[1] || metaMatch2?.[1] || "").substring(0, 300);
+}
+
+/**
+ * Extract JSON-LD structured data (NewsArticle, Article, BlogPosting).
+ * Most modern sites (including Next.js/React) embed this in <head>.
+ */
+function extractJsonLdDescription(html) {
+  const ldRegex = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match;
+  while ((match = ldRegex.exec(html)) !== null) {
+    try {
+      let data = JSON.parse(match[1]);
+      // Handle @graph arrays (some sites wrap multiple schemas)
+      if (data["@graph"]) data = data["@graph"];
+      const items = Array.isArray(data) ? data : [data];
+      for (const item of items) {
+        const type = (item["@type"] || "").toLowerCase();
+        if (type.includes("article") || type.includes("newsarticle") || type.includes("blogposting") || type.includes("reportage")) {
+          // Prefer articleBody (full text), fall back to description
+          const body = item.articleBody || "";
+          const desc = item.description || "";
+          const text = body.length > desc.length ? body : desc;
+          if (text) return decodeEntities(text).substring(0, 600);
+        }
+      }
+    } catch {
+      // invalid JSON, try next block
+    }
+  }
+  return "";
+}
+
+/**
+ * Extract rich context from HTML using multiple strategies:
+ * 1. JSON-LD structured data (most reliable, used by modern sites)
+ * 2. Meta description (og:description)
+ * 3. Article body <p> tags (fallback for traditional CMS sites)
+ * Returns up to 800 characters of combined context.
+ */
+function extractContext(html) {
+  // Strategy 1: JSON-LD (best source — structured, contains specific names)
+  const jsonLdDesc = extractJsonLdDescription(html);
+
+  // Strategy 2: meta description
+  const metaDesc = extractMetaDescription(html);
+
+  // Strategy 3: article body <p> tags
+  let bodyText = "";
+  // Strip noise blocks before paragraph extraction
+  let cleaned = html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<nav[\s\S]*?<\/nav>/gi, "")
+    .replace(/<header[\s\S]*?<\/header>/gi, "")
+    .replace(/<footer[\s\S]*?<\/footer>/gi, "")
+    .replace(/<aside[\s\S]*?<\/aside>/gi, "");
+
+  // Try to find article container (multiple strategies)
+  const articleMatch = cleaned.match(
+    /<(?:article|div)[^>]*(?:class|id)=["'][^"']*(?:article|story|post|entry|content)[-_]?(?:body|content|text|area)[^"']*["'][^>]*>([\s\S]*)/i
+  ) || cleaned.match(
+    /<article[^>]*>([\s\S]*)/i  // fallback: any <article> tag (bright.nl uses <article role="main">)
+  );
+  const region = articleMatch ? articleMatch[0] : cleaned;
+
+  const paragraphs = [];
+  let totalLen = 0;
+  const pRegex = /<p[^>]*>([\s\S]*?)<\/p>/gi;
+  let m;
+  while ((m = pRegex.exec(region)) !== null && totalLen < 600) {
+    const text = decodeEntities(m[1].replace(/<[^>]+>/g, ""));
+    if (text.length < 40) continue;
+    paragraphs.push(text);
+    totalLen += text.length;
+  }
+  bodyText = paragraphs.join(" ");
+
+  // Combine: pick the richest context available
+  const best = jsonLdDesc || bodyText || "";
+  const extra = metaDesc && metaDesc !== best ? metaDesc : "";
+
+  if (best && extra) {
+    return `${best} | ${extra}`.substring(0, 800);
+  }
+  return (best || extra || "").substring(0, 800);
+}
+
+/**
+ * Call Claude API with streaming. Send each parsed result to the content script
+ * progressively so headlines appear one by one.
+ */
+async function callClaudeStreaming(apiKey, headlines, tabId) {
+  const headlineList = headlines
+    .map((h) => {
+      let line = `- id: "${h.id}" | kop: "${h.text}"`;
+      if (h.context) {
+        line += ` | context: "${h.context}"`;
+      }
+      return line;
+    })
+    .join("\n");
+
+  const systemPrompt = `Je bent een redacteur die clickbait-koppen herschrijft naar informatieve titels.
+
+WANNEER HERSCHRIJVEN:
+Een kop is clickbait als die bewust informatie achterhoudt om klikken te genereren. Signalen:
+- Vage verwijzingen: "dit apparaat", "deze app", "het bedrijf", "een nieuwe functie"
+- Nieuwsgierigheid-trucs: "hiermee kun je...", "zo doe je...", "dit is waarom...", "daarom moet je..."
+- Essentieel onderwerp ontbreekt: de lezer kan niet inschatten waar het artikel over gaat
+Als de kop al duidelijk genoeg is om te beslissen of je het wil lezen → "newTitle": null.
+
+HOE HERSCHRIJVEN:
+1. Zoek in de context naar: merknaam, productnaam, persoonsnaam, bedrijfsnaam, app-naam, boektitel, filmnaam
+2. Zet het belangrijkste specifieke woord (naam/merk/product) vooraan in de titel
+3. Voeg het kernfeit toe: wat gebeurt er, wat doet het, wat is de conclusie?
+
+VOORBEELDEN:
+- "Hiermee kan je overal online werken zonder stopcontact" + context bevat "Starlink Mini" en "PeakDo LinkPower 2"
+  → "PeakDo LinkPower 2: draagbare batterij voor Starlink Mini"
+- "Dit boek zal nooit verschijnen" + context bevat "Shy Girl" en "Mia Ballard"
+  → "Shy Girl van Mia Ballard niet uitgebracht wegens AI-verdenking"
+- "Review: dit laserapparaat is verrassend goed" + context bevat "LaserPecker LX2"
+  → "LaserPecker LX2 review: betaalbaar laserapparaat voor thuis"
+- "Samsung komt met nieuwe telefoon" (al specifiek genoeg)
+  → null
+
+REGELS:
+- Maximaal 80 tekens
+- Behoud de taal van de originele kop
+- Geen meningen of editoriale toon
+- Retourneer ALLEEN valide JSON, geen andere tekst`;
+
+  const userPrompt = `Beoordeel en herschrijf deze koppen. Retourneer een JSON array met "id" en "newTitle" (null als de kop al goed is).
+
+Koppen:
+${headlineList}
+
+Format: [{"id": "headline-0", "newTitle": "..." of null}, ...]`;
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 4096,
+        stream: true,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }],
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        return { error: "Ongeldige API key. Controleer je key in de instellingen." };
+      }
+      if (response.status === 429) {
+        return { error: "Rate limit bereikt. Probeer het over een minuut opnieuw." };
+      }
+      return {
+        error: `API fout (${response.status}): ${err.error?.message || "Onbekende fout"}`,
+      };
+    }
+
+    // Parse SSE stream and extract text progressively
+    const allResults = await parseStreamAndSendResults(response, tabId);
+    return { results: allResults };
+  } catch (err) {
+    return { error: `Fout: ${err.message}` };
+  }
+}
+
+/**
+ * Parse the SSE stream from Anthropic API.
+ * As complete JSON objects are detected, send them to the content script immediately.
+ */
+async function parseStreamAndSendResults(response, tabId) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let fullText = "";
+  const sentResults = new Set();
+  const allResults = [];
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    const chunk = decoder.decode(value, { stream: true });
+    // Parse SSE events
+    for (const line of chunk.split("\n")) {
+      if (!line.startsWith("data: ")) continue;
+      const data = line.slice(6);
+      if (data === "[DONE]") continue;
+
+      try {
+        const event = JSON.parse(data);
+        if (event.type === "content_block_delta" && event.delta?.text) {
+          fullText += event.delta.text;
+
+          // Try to extract complete JSON objects as they appear
+          const newResults = tryParsePartialResults(fullText, sentResults);
+          for (const result of newResults) {
+            allResults.push(result);
+            sentResults.add(result.id);
+
+            // Send to content script immediately for progressive rendering
+            if (tabId) {
+              chrome.tabs.sendMessage(tabId, {
+                action: "stream-result",
+                result,
+              }).catch(() => {}); // ignore if tab closed
+            }
+          }
+        }
+      } catch {
+        // not valid JSON yet, continue
+      }
+    }
+  }
+
+  // Final parse of complete text (catch anything missed during streaming)
+  try {
+    const jsonStr = fullText
+      .replace(/```json\n?/g, "")
+      .replace(/```\n?/g, "")
+      .trim();
+    const parsed = JSON.parse(jsonStr);
+    for (const result of parsed) {
+      if (!sentResults.has(result.id)) {
+        allResults.push(result);
+      }
+    }
+  } catch {
+    // If final parse fails but we got stream results, use those
+  }
+
+  return allResults;
+}
+
+/**
+ * Try to extract complete {"id": "...", "newTitle": "..."} objects from
+ * partial JSON text as it streams in.
+ */
+function tryParsePartialResults(text, alreadySent) {
+  const results = [];
+  // Match complete JSON objects for headline results
+  const regex = /\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"newTitle"\s*:\s*(null|"(?:[^"\\]|\\.)*")\s*\}/g;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    const id = match[1];
+    if (alreadySent.has(id)) continue;
+
+    const rawTitle = match[2];
+    const newTitle = rawTitle === "null" ? null : JSON.parse(rawTitle);
+    results.push({ id, newTitle });
+  }
+
+  return results;
+}

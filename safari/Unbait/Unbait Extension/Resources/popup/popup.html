@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1 class="logo"><span class="logo-icon">U</span><span class="logo-text">nbait</span></h1>
+    <p class="tagline">Replace clickbait headlines with informative titles</p>
+
+    <div class="section">
+      <div class="label-row">
+        <label for="api-key">Anthropic API Key</label>
+        <button id="btn-info" class="btn-info" title="How does this work?">i</button>
+      </div>
+
+      <div id="info-panel" class="info-panel hidden">
+        <h3>How to get an API key</h3>
+
+        <p><strong>1. Create an account</strong><br>
+        Go to <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>. Sign in with your existing Claude account or create a new developer account.</p>
+
+        <p><strong>2. Set up billing</strong><br>
+        The API uses prepaid credits (separate from a Claude Pro subscription). Go to <em>Settings &gt; Billing</em>, add a payment method and deposit at least $5.</p>
+
+        <p><strong>3. Create a key</strong><br>
+        Go to <a href="https://console.anthropic.com/settings/keys" target="_blank">API Keys</a>, click <em>Create Key</em>, give it a name and copy the key immediately. You'll only see it once.</p>
+
+        <div class="info-costs">
+          <h3>Model &amp; estimated cost</h3>
+          <p>Unbait uses <strong>Claude Haiku 4.5</strong>, the fastest and most affordable model. Estimated cost: <strong>&lt; $0.01 per page</strong> (~20 headlines).</p>
+        </div>
+      </div>
+
+      <div class="key-row">
+        <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
+        <button id="btn-toggle-key" class="btn-icon" title="Show/hide key">
+          <svg id="icon-eye" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg id="icon-eye-off" class="hidden" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></svg>
+        </button>
+        <button id="btn-save-key" class="btn-icon btn-save" title="Save key">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
+        </button>
+        <button id="btn-delete-key" class="btn-icon btn-delete" title="Delete key" style="display:none">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+        </button>
+      </div>
+      <div id="key-status" class="status-msg"></div>
+    </div>
+
+    <hr>
+
+    <button id="btn-declickbait" class="btn-primary" disabled>
+      De-clickbait!
+    </button>
+
+    <div id="status" class="status-msg"></div>
+
+    <div id="stats" class="stats hidden">
+      <span id="stat-found">0</span> headlines found,
+      <span id="stat-replaced">0</span> replaced
+    </div>
+
+    <hr>
+
+    <div class="section">
+      <label>Always On</label>
+      <button id="btn-toggle-site" class="btn-site" disabled>
+        <span id="toggle-site-text">Enable for this site</span>
+      </button>
+      <div id="current-site" class="current-site"></div>
+
+      <button id="btn-manage-sites" class="btn-link">Manage sites ›</button>
+
+      <div id="sites-panel" class="sites-panel hidden">
+        <div id="sites-list" class="sites-list"></div>
+        <div class="add-site-row">
+          <input type="text" id="add-site-input" placeholder="e.g. www.example.com">
+          <button id="btn-add-site" class="btn-add">+</button>
+        </div>
+      </div>
+    </div>
+
+    <button id="btn-about" class="btn-about">About Unbait</button>
+
+    <div id="about-panel" class="info-panel hidden">
+      <h3>Why this plugin exists</h3>
+      <p>Many news sites use vague, curiosity-driven headlines that hide what an article is actually about. You end up clicking articles that don't interest you and missing ones that do. Unbait reads the article and rewrites the headline so you can tell at a glance whether it's worth your time.</p>
+
+      <div class="info-costs">
+        <h3>Good to know</h3>
+        <p>AI-generated titles are interpretations, not objective truths. Nuance can be lost, or the AI may emphasize a detail that isn't the main point. You're trading the editor's sensationalism for an algorithm's best guess. The original title is always one click away.</p>
+        <p>Clickbait exploits the <em>curiosity gap</em>: the space between what you know and what you want to know. A clear title closes that gap, letting you decide calmly whether to read on.</p>
+      </div>
+
+      <div class="info-costs">
+        <h3>Limitations</h3>
+        <p>Unbait needs to briefly fetch each article to generate a better title. Articles behind a login wall or paywall cannot be read, so those headlines will remain unchanged.</p>
+      </div>
+
+      <div class="info-costs">
+        <h3>Disclaimer</h3>
+        <p>Unbait is provided as-is, without warranty. The author is not responsible for any costs, data loss, or other damages resulting from its use. Your API key is stored locally on your device and sent directly to Anthropic over HTTPS.</p>
+        <p><strong>Tip:</strong> Create a <a href="https://console.anthropic.com/settings/workspaces" target="_blank">workspace</a> for Unbait and set a monthly spending limit under <a href="https://console.anthropic.com/settings/limits" target="_blank">Workspace &gt; Limits &gt; Spend limits</a>. Generate your API key inside that workspace to keep costs capped.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
