@@ -7,6 +7,7 @@ const statusEl = document.getElementById("status");
 const statsEl = document.getElementById("stats");
 const statFound = document.getElementById("stat-found");
 const statReplaced = document.getElementById("stat-replaced");
+const providerSelect = document.getElementById("provider");
 
 // Always On elements
 const btnToggleSite = document.getElementById("btn-toggle-site");
@@ -19,6 +20,36 @@ const addSiteInput = document.getElementById("add-site-input");
 const btnAddSite = document.getElementById("btn-add-site");
 
 let _currentHostname = null;
+
+const PROVIDER_PLACEHOLDERS = {
+  anthropic: "sk-ant-...",
+  openai: "sk-...",
+  gemini: "AIza...",
+};
+
+function updateProviderUI(provider) {
+  apiKeyInput.placeholder = PROVIDER_PLACEHOLDERS[provider] || "Enter API key";
+  // Toggle info panels
+  document.getElementById("info-anthropic").classList.toggle("hidden", provider !== "anthropic");
+  document.getElementById("info-openai").classList.toggle("hidden", provider !== "openai");
+  document.getElementById("info-gemini").classList.toggle("hidden", provider !== "gemini");
+}
+
+// Provider change handler
+providerSelect.addEventListener("change", () => {
+  const provider = providerSelect.value;
+  updateProviderUI(provider);
+  chrome.storage.local.set({ provider });
+  // Load key for this provider if we have one
+  chrome.storage.local.get(`apiKey_${provider}`, (data) => {
+    const key = data[`apiKey_${provider}`] || "";
+    apiKeyInput.value = key;
+    btnDeclickbait.disabled = !key;
+    btnDeleteKey.style.display = key ? "flex" : "none";
+    keyStatus.textContent = key ? "Key saved" : "";
+    keyStatus.className = key ? "status-msg success" : "status-msg";
+  });
+});
 
 // Info panel toggle
 const btnInfo = document.getElementById("btn-info");
@@ -36,10 +67,21 @@ btnAbout.addEventListener("click", () => {
   btnAbout.textContent = isHidden ? "About Unbait" : "Close";
 });
 
-// Load saved API key on popup open (session storage = memory only, secure)
-chrome.storage.local.get("apiKey", ({ apiKey }) => {
-  if (apiKey) {
-    apiKeyInput.value = apiKey;
+// Load saved provider + API key on popup open
+chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini", "apiKey"], (data) => {
+  // Migrate old single apiKey to anthropic-specific key
+  if (data.apiKey && !data.apiKey_anthropic) {
+    chrome.storage.local.set({ apiKey_anthropic: data.apiKey });
+    data.apiKey_anthropic = data.apiKey;
+  }
+
+  const provider = data.provider || "anthropic";
+  providerSelect.value = provider;
+  updateProviderUI(provider);
+
+  const key = data[`apiKey_${provider}`] || "";
+  if (key) {
+    apiKeyInput.value = key;
     btnDeclickbait.disabled = false;
     btnDeleteKey.style.display = "flex";
     keyStatus.textContent = "Key saved";
@@ -70,7 +112,7 @@ btnToggleKey.addEventListener("click", () => {
   document.getElementById("icon-eye-off").classList.toggle("hidden", !isPassword);
 });
 
-// Save API key (session storage = memory only, not synced, not on disk)
+// Save API key per provider
 btnSaveKey.addEventListener("click", () => {
   const key = apiKeyInput.value.trim();
   if (!key) {
@@ -78,7 +120,8 @@ btnSaveKey.addEventListener("click", () => {
     keyStatus.className = "status-msg error";
     return;
   }
-  chrome.storage.local.set({ apiKey: key }, () => {
+  const provider = providerSelect.value;
+  chrome.storage.local.set({ [`apiKey_${provider}`]: key, provider }, () => {
     keyStatus.textContent = "Key saved";
     keyStatus.className = "status-msg success";
     btnDeclickbait.disabled = false;
@@ -86,10 +129,11 @@ btnSaveKey.addEventListener("click", () => {
   });
 });
 
-// Delete API key
+// Delete API key for current provider
 const btnDeleteKey = document.getElementById("btn-delete-key");
 btnDeleteKey.addEventListener("click", () => {
-  chrome.storage.local.remove("apiKey", () => {
+  const provider = providerSelect.value;
+  chrome.storage.local.remove(`apiKey_${provider}`, () => {
     apiKeyInput.value = "";
     keyStatus.textContent = "Key removed";
     keyStatus.className = "status-msg";

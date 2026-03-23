@@ -103,6 +103,28 @@ label {
   color: #fff;
 }
 
+.provider-select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1.5px solid #ddd;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #333;
+  background: #fff;
+  cursor: pointer;
+  margin-bottom: 8px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.provider-select:focus {
+  border-color: #0d9488;
+}
+
+.label-key {
+  margin-top: 4px;
+}
+
 .info-panel {
   background: #f8fffe;
   border: 1px solid #d1e8e5;

@@ -43,16 +43,36 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 async function handleRewrite(headlines, tabId) {
-  const { apiKey } = await chrome.storage.local.get("apiKey");
+  const data = await chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini", "apiKey"]);
+  const provider = data.provider || "anthropic";
+
+  // Migrate old key format
+  let apiKey = data[`apiKey_${provider}`];
+  if (!apiKey && provider === "anthropic" && data.apiKey) {
+    apiKey = data.apiKey;
+  }
+
   if (!apiKey) {
     return { error: "No API key set. Open the Unbait popup to enter your key." };
   }
 
-  // Fast partial fetch for context (only og:description from <head>)
+  // Fast partial fetch for context
   const enriched = await enrichWithContext(headlines);
 
-  // Call Claude API with streaming for progressive results
-  return await callClaudeStreaming(apiKey, enriched, tabId);
+  // Call the selected provider
+  return await callProvider(provider, apiKey, enriched, tabId);
+}
+
+async function callProvider(provider, apiKey, headlines, tabId) {
+  switch (provider) {
+    case "openai":
+      return await callOpenAI(apiKey, headlines, tabId);
+    case "gemini":
+      return await callGemini(apiKey, headlines, tabId);
+    case "anthropic":
+    default:
+      return await callClaudeStreaming(apiKey, headlines, tabId);
+  }
 }
 
 /**
@@ -223,10 +243,9 @@ function extractContext(html) {
 }
 
 /**
- * Call Claude API with streaming. Send each parsed result to the content script
- * progressively so headlines appear one by one.
+ * Build the shared prompt parts used by all providers.
  */
-async function callClaudeStreaming(apiKey, headlines, tabId) {
+function buildPrompts(headlines) {
   const headlineList = headlines
     .map((h) => {
       let line = `- id: "${h.id}" | kop: "${h.text}"`;
@@ -273,6 +292,15 @@ Koppen:
 ${headlineList}
 
 Format: [{"id": "headline-0", "newTitle": "..." of null}, ...]`;
+
+  return { systemPrompt, userPrompt };
+}
+
+/**
+ * Call Claude API with streaming.
+ */
+async function callClaudeStreaming(apiKey, headlines, tabId) {
+  const { systemPrompt, userPrompt } = buildPrompts(headlines);
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -400,4 +428,154 @@ function tryParsePartialResults(text, alreadySent) {
   }
 
   return results;
+}
+
+/**
+ * Parse a non-streaming JSON response and send results to content script.
+ */
+function parseAndSendResults(text, tabId) {
+  const jsonStr = text
+    .replace(/```json\n?/g, "")
+    .replace(/```\n?/g, "")
+    .trim();
+
+  const parsed = JSON.parse(jsonStr);
+  const results = [];
+
+  for (const result of parsed) {
+    results.push(result);
+    if (tabId) {
+      chrome.tabs.sendMessage(tabId, {
+        action: "stream-result",
+        result,
+      }).catch(() => {});
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Call OpenAI API (GPT-4o mini) with streaming.
+ */
+async function callOpenAI(apiKey, headlines, tabId) {
+  const { systemPrompt, userPrompt } = buildPrompts(headlines);
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        stream: true,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.3,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      if (response.status === 401) return { error: "Invalid OpenAI API key." };
+      if (response.status === 429) return { error: "Rate limit reached. Try again in a minute." };
+      return { error: `OpenAI error (${response.status}): ${err.error?.message || "Unknown error"}` };
+    }
+
+    // Parse SSE stream (OpenAI format)
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = "";
+    const sentResults = new Set();
+    const allResults = [];
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      for (const line of chunk.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6);
+        if (data === "[DONE]") continue;
+
+        try {
+          const event = JSON.parse(data);
+          const delta = event.choices?.[0]?.delta?.content;
+          if (delta) {
+            fullText += delta;
+            const newResults = tryParsePartialResults(fullText, sentResults);
+            for (const result of newResults) {
+              allResults.push(result);
+              sentResults.add(result.id);
+              if (tabId) {
+                chrome.tabs.sendMessage(tabId, { action: "stream-result", result }).catch(() => {});
+              }
+            }
+          }
+        } catch {
+          // continue
+        }
+      }
+    }
+
+    // Final parse
+    try {
+      const jsonStr = fullText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const parsed = JSON.parse(jsonStr);
+      for (const result of parsed) {
+        if (!sentResults.has(result.id)) allResults.push(result);
+      }
+    } catch {}
+
+    return { results: allResults };
+  } catch (err) {
+    return { error: `OpenAI error: ${err.message}` };
+  }
+}
+
+/**
+ * Call Google Gemini API (Gemini 2.0 Flash).
+ * Gemini uses a different API structure — no streaming for simplicity.
+ */
+async function callGemini(apiKey, headlines, tabId) {
+  const { systemPrompt, userPrompt } = buildPrompts(headlines);
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ parts: [{ text: userPrompt }] }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      if (response.status === 400) return { error: "Invalid Gemini API key." };
+      if (response.status === 429) return { error: "Gemini rate limit reached. Try again shortly." };
+      return { error: `Gemini error (${response.status}): ${err.error?.message || "Unknown error"}` };
+    }
+
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+    try {
+      const results = parseAndSendResults(text, tabId);
+      return { results };
+    } catch {
+      return { error: "Could not parse Gemini response." };
+    }
+  } catch (err) {
+    return { error: `Gemini error: ${err.message}` };
+  }
 }
