@@ -545,6 +545,7 @@ async function callOpenAI(apiKey, headlines, tabId) {
 async function callGemini(apiKey, headlines, tabId) {
   const BATCH_SIZE = 5;
   const BATCH_DELAY = 1500; // 1.5s between batches to avoid rate limits
+  const MAX_RETRIES = 2;
   const allResults = [];
 
   for (let i = 0; i < headlines.length; i += BATCH_SIZE) {
@@ -554,43 +555,75 @@ async function callGemini(apiKey, headlines, tabId) {
     // Wait between batches (not before the first one)
     if (i > 0) await new Promise((r) => setTimeout(r, BATCH_DELAY));
 
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: systemPrompt }] },
-            contents: [{ parts: [{ text: userPrompt }] }],
-            generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
-          }),
-        }
-      );
+    let retries = 0;
+    let batchDone = false;
 
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        if (response.status === 429) {
-          // Rate limited — wait longer and retry this batch
-          await new Promise((r) => setTimeout(r, 5000));
-          i -= BATCH_SIZE; // retry this batch
+    while (!batchDone && retries <= MAX_RETRIES) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              system_instruction: { parts: [{ text: systemPrompt }] },
+              contents: [{ parts: [{ text: userPrompt }] }],
+              generationConfig: {
+                temperature: 0.3,
+                maxOutputTokens: 2048,
+                responseMimeType: "application/json",
+              },
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          if (response.status === 429 && retries < MAX_RETRIES) {
+            retries++;
+            console.log(`[Unbait] Gemini 429 rate limit, retry ${retries}/${MAX_RETRIES}...`);
+            await new Promise((r) => setTimeout(r, 5000 * retries));
+            continue;
+          }
+          if (response.status === 429) {
+            console.warn("[Unbait] Gemini rate limit exceeded after retries, skipping batch");
+            batchDone = true;
+            continue;
+          }
+          if (response.status === 400) return { error: "Invalid Gemini API key." };
+          return { error: `Gemini error (${response.status}): ${err.error?.message || "Unknown error"}` };
+        }
+
+        const data = await response.json();
+
+        // Check for safety blocks or empty responses
+        const finishReason = data.candidates?.[0]?.finishReason;
+        if (finishReason && finishReason !== "STOP" && finishReason !== "MAX_TOKENS") {
+          console.warn(`[Unbait] Gemini blocked batch (reason: ${finishReason}), skipping`);
+          batchDone = true;
           continue;
         }
-        if (response.status === 400) return { error: "Invalid Gemini API key." };
-        return { error: `Gemini error (${response.status}): ${err.error?.message || "Unknown error"}` };
-      }
 
-      const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-      try {
-        const results = parseAndSendResults(text, tabId);
-        allResults.push(...results);
-      } catch {
-        // Skip unparseable batch, continue with next
+        if (!text) {
+          console.warn("[Unbait] Gemini returned empty response, skipping batch");
+          batchDone = true;
+          continue;
+        }
+
+        try {
+          const results = parseAndSendResults(text, tabId);
+          allResults.push(...results);
+        } catch (parseErr) {
+          console.error("[Unbait] Failed to parse Gemini response:", parseErr.message);
+          console.log("[Unbait] Raw Gemini text:", text.substring(0, 500));
+        }
+
+        batchDone = true;
+      } catch (err) {
+        return { error: `Gemini error: ${err.message}` };
       }
-    } catch (err) {
-      return { error: `Gemini error: ${err.message}` };
     }
   }
 
