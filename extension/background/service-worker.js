@@ -540,42 +540,59 @@ async function callOpenAI(apiKey, headlines, tabId) {
 
 /**
  * Call Google Gemini API (Gemini 2.0 Flash).
- * Gemini uses a different API structure — no streaming for simplicity.
+ * Splits headlines into small batches to stay within free tier token limits.
  */
 async function callGemini(apiKey, headlines, tabId) {
-  const { systemPrompt, userPrompt } = buildPrompts(headlines);
+  const BATCH_SIZE = 5;
+  const BATCH_DELAY = 1500; // 1.5s between batches to avoid rate limits
+  const allResults = [];
 
-  try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemPrompt }] },
-          contents: [{ parts: [{ text: userPrompt }] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
-        }),
-      }
-    );
+  for (let i = 0; i < headlines.length; i += BATCH_SIZE) {
+    const batch = headlines.slice(i, i + BATCH_SIZE);
+    const { systemPrompt, userPrompt } = buildPrompts(batch);
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      if (response.status === 400) return { error: "Invalid Gemini API key." };
-      if (response.status === 429) return { error: "Gemini rate limit reached. Try again shortly." };
-      return { error: `Gemini error (${response.status}): ${err.error?.message || "Unknown error"}` };
-    }
-
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    // Wait between batches (not before the first one)
+    if (i > 0) await new Promise((r) => setTimeout(r, BATCH_DELAY));
 
     try {
-      const results = parseAndSendResults(text, tabId);
-      return { results };
-    } catch {
-      return { error: "Could not parse Gemini response." };
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: systemPrompt }] },
+            contents: [{ parts: [{ text: userPrompt }] }],
+            generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        if (response.status === 429) {
+          // Rate limited — wait longer and retry this batch
+          await new Promise((r) => setTimeout(r, 5000));
+          i -= BATCH_SIZE; // retry this batch
+          continue;
+        }
+        if (response.status === 400) return { error: "Invalid Gemini API key." };
+        return { error: `Gemini error (${response.status}): ${err.error?.message || "Unknown error"}` };
+      }
+
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+      try {
+        const results = parseAndSendResults(text, tabId);
+        allResults.push(...results);
+      } catch {
+        // Skip unparseable batch, continue with next
+      }
+    } catch (err) {
+      return { error: `Gemini error: ${err.message}` };
     }
-  } catch (err) {
-    return { error: `Gemini error: ${err.message}` };
   }
+
+  return { results: allResults };
 }
