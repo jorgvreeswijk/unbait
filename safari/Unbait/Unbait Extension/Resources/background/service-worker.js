@@ -5,6 +5,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Verify sender is from our own extension or a valid tab
   if (sender.id !== chrome.runtime.id) return;
 
+  if (message.action === "get-status") {
+    const status = _tabStatus.get(message.tabId) || null;
+    sendResponse(status);
+    return;
+  }
+
   if (message.action === "rewrite-headlines") {
     const tabId = sender.tab?.id;
     _tabStatus.set(tabId, { state: "working", text: "Scanning headlines..." });

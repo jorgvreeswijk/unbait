@@ -260,23 +260,57 @@ btnDeclickbait.addEventListener("click", async () => {
 
     // Send de-clickbait message to content script
     const action = isYouTube ? 'de-clickbait-youtube' : 'de-clickbait';
-    const response = await chrome.tabs.sendMessage(tab.id, {
-      action,
-    });
 
-    if (response && response.error) {
-      statusEl.textContent = response.error;
-      statusEl.className = "status-msg error";
-    } else if (response && response.success) {
-      statusEl.textContent = "Done!";
-      statusEl.className = "status-msg success";
-      statsEl.classList.remove("hidden");
-      statFound.textContent = response.found || 0;
-      statReplaced.textContent = response.count || 0;
-    } else {
-      statusEl.textContent = "No response from page";
-      statusEl.className = "status-msg error";
-    }
+    // Fire the request — don't await. Poll for status instead.
+    chrome.tabs.sendMessage(tab.id, { action }).catch(() => {});
+
+    // Poll service worker for live status updates
+    const pollInterval = setInterval(async () => {
+      try {
+        const status = await chrome.runtime.sendMessage({ action: "get-status", tabId: tab.id });
+        if (!status) return;
+
+        if (status.state === "working") {
+          statusEl.textContent = status.text || "Working...";
+          statusEl.className = "status-msg";
+          // Show live count if available
+          if (status.found) {
+            statsEl.classList.remove("hidden");
+            statFound.textContent = status.found;
+            statReplaced.textContent = status.count || 0;
+          }
+        } else if (status.state === "done") {
+          clearInterval(pollInterval);
+          statusEl.textContent = "Done!";
+          statusEl.className = "status-msg success";
+          statsEl.classList.remove("hidden");
+          statFound.textContent = status.found || 0;
+          statReplaced.textContent = status.count || 0;
+          btnDeclickbait.disabled = false;
+          btnDeclickbait.classList.remove("processing");
+          btnDeclickbait.textContent = "De-clickbait!";
+        } else if (status.state === "error") {
+          clearInterval(pollInterval);
+          statusEl.textContent = status.text || "Error";
+          statusEl.className = "status-msg error";
+          btnDeclickbait.disabled = false;
+          btnDeclickbait.classList.remove("processing");
+          btnDeclickbait.textContent = "De-clickbait!";
+        }
+      } catch {
+        // Service worker may be inactive, ignore
+      }
+    }, 500);
+
+    // Safety: stop polling after 2 minutes
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      btnDeclickbait.disabled = false;
+      btnDeclickbait.classList.remove("processing");
+      btnDeclickbait.textContent = "De-clickbait!";
+    }, 120000);
+
+    return; // Don't fall through to the button reset below
   } catch (err) {
     statusEl.textContent = "Cannot connect to page. Try refreshing.";
     statusEl.className = "status-msg error";
