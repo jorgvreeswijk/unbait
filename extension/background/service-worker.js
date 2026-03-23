@@ -585,13 +585,15 @@ async function callGemini(apiKey, headlines, tabId) {
           const err = await response.json().catch(() => ({}));
           if (response.status === 429 && retries < MAX_RETRIES) {
             retries++;
-            const wait = 10000 * retries; // 10s, 20s, 30s backoff
-            console.log(`[Unbait] Gemini 429 rate limit, retry ${retries}/${MAX_RETRIES} in ${wait/1000}s...`);
+            const errMsg = err.error?.message || "unknown";
+            const wait = 10000 * retries;
+            console.log(`[Unbait] Gemini 429: "${errMsg}" — retry ${retries}/${MAX_RETRIES} in ${wait/1000}s...`);
             await new Promise((r) => setTimeout(r, wait));
             continue;
           }
           if (response.status === 429) {
-            console.warn("[Unbait] Gemini rate limit exceeded after retries, skipping batch");
+            const errMsg = err.error?.message || "unknown";
+            console.warn(`[Unbait] Gemini rate limit exceeded after retries: "${errMsg}". Skipping batch.`);
             batchDone = true;
             continue;
           }
