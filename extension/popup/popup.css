@@ -478,3 +478,17 @@ hr {
 .btn-about:hover {
   color: #0d9488;
 }
+
+.donate-btn {
+  font-size: 0.8rem;
+  color: #0d9488;
+  text-decoration: none;
+  padding: 0.3rem 0.75rem;
+  border: 1px solid #0d9488;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+
+.donate-btn:hover {
+  background: #ccfbf1;
+}

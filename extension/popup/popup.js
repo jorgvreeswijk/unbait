@@ -68,6 +68,13 @@ btnAbout.addEventListener("click", () => {
   btnAbout.textContent = isHidden ? "About Unbait" : "Close";
 });
 
+// Beer icon hover (CSP-safe, no inline handlers)
+const btnBeer = document.getElementById("btn-beer");
+if (btnBeer) {
+  btnBeer.addEventListener("mouseenter", () => { btnBeer.style.opacity = "0.75"; });
+  btnBeer.addEventListener("mouseleave", () => { btnBeer.style.opacity = "0.35"; });
+}
+
 // Load saved provider + API key on popup open
 chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini", "apiKey"], (data) => {
   // Migrate old single apiKey to anthropic-specific key
