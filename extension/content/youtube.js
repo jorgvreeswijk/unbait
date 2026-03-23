@@ -26,8 +26,8 @@ const YT_CONFIG = {
   CACHE_MAX_AGE_MS: 7 * 24 * 60 * 60 * 1000,
   CACHE_MAX_ENTRIES: 500,
   API_TIMEOUT_MS: 120000,
-  TRANSCRIPT_CONCURRENCY: 4,
-  TRANSCRIPT_TIMEOUT_MS: 8000,
+  TRANSCRIPT_CONCURRENCY: 6,
+  TRANSCRIPT_TIMEOUT_MS: 5000,
   TRANSCRIPT_MAX_CHARS: 1000,
   TRANSCRIPT_MAX_TIME_MS: 120000, // first ~2 minutes of captions
   DESCRIPTION_MAX_CHARS: 500,
@@ -639,7 +639,6 @@ async function processYouTubeTitles() {
   // YouTube loads content dynamically — wait for titles to appear
   let titles = findYouTubeTitles();
   if (titles.length === 0) {
-    // Wait up to 5 seconds for YouTube to render video tiles
     for (let attempt = 0; attempt < 10 && titles.length === 0; attempt++) {
       await new Promise((r) => setTimeout(r, 500));
       titles = findYouTubeTitles();
@@ -648,6 +647,13 @@ async function processYouTubeTitles() {
 
   if (titles.length === 0) {
     return { error: "No video titles found on this page." };
+  }
+
+  // Limit to first 15 visible titles for speed
+  const MAX_TITLES = 15;
+  if (titles.length > MAX_TITLES) {
+    console.debug(`[Unbait YT] Limiting from ${titles.length} to ${MAX_TITLES} titles`);
+    titles = titles.slice(0, MAX_TITLES);
   }
 
   _ytElements.clear();
@@ -666,7 +672,7 @@ async function processYouTubeTitles() {
     };
   }
 
-  // Enrich uncached titles with transcript context
+  // Enrich uncached titles with transcript context (limited concurrency)
   await enrichWithTranscripts(uncachedData);
 
   // Optionally replace thumbnails
