@@ -673,10 +673,16 @@ async function callGemini(apiKey, headlines, tabId) {
           continue;
         }
 
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        // Gemini 2.5 Flash may return multiple parts (thinking + response)
+        // Find the last text part, which contains the actual JSON output
+        const parts = data.candidates?.[0]?.content?.parts || [];
+        let text = "";
+        for (const part of parts) {
+          if (part.text) text = part.text; // take the last text part
+        }
 
         if (!text) {
-          console.warn("[Unbait] Gemini returned empty response, skipping batch");
+          console.warn("[Unbait] Gemini returned empty response, parts:", JSON.stringify(parts).substring(0, 300));
           batchDone = true;
           continue;
         }
