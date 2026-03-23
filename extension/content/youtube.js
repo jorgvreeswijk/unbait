@@ -235,10 +235,12 @@ function restoreIcons() {
 
 const YT_TITLE_SELECTORS = [
   "ytd-rich-grid-media #video-title",           // Homepage grid
+  "ytd-rich-item-renderer #video-title",        // Homepage grid (alternate)
   "ytd-video-renderer #video-title",             // Search results
   "ytd-compact-video-renderer #video-title",     // Sidebar suggestions
   "ytd-playlist-video-renderer #video-title",    // Playlist
   "ytd-grid-video-renderer #video-title",        // Channel page grid
+  "#video-title",                                // Catch-all fallback
 ];
 
 function findYouTubeTitles() {
@@ -606,7 +608,15 @@ async function fetchAndApplyResults(
 // ---------------------------------------------------------------------------
 
 async function processYouTubeTitles() {
-  const titles = findYouTubeTitles();
+  // YouTube loads content dynamically — wait for titles to appear
+  let titles = findYouTubeTitles();
+  if (titles.length === 0) {
+    // Wait up to 5 seconds for YouTube to render video tiles
+    for (let attempt = 0; attempt < 10 && titles.length === 0; attempt++) {
+      await new Promise((r) => setTimeout(r, 500));
+      titles = findYouTubeTitles();
+    }
+  }
 
   if (titles.length === 0) {
     return { error: "No video titles found on this page." };
