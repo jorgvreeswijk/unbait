@@ -4,9 +4,22 @@ if (window.__unbaitLoaded) {
 } else {
 window.__unbaitLoaded = true;
 
+let _isProcessing = false;
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === "de-clickbait") {
-    processHeadlines().then(sendResponse);
+    if (_isProcessing) {
+      sendResponse({ error: "Already processing, please wait." });
+      return true;
+    }
+    _isProcessing = true;
+    processHeadlines().then((result) => {
+      _isProcessing = false;
+      sendResponse(result);
+    }).catch((err) => {
+      _isProcessing = false;
+      sendResponse({ error: err.message });
+    });
     return true; // async response
   }
   if (message.action === "stream-result") {
@@ -25,7 +38,10 @@ window.addEventListener("pageshow", (event) => {
 });
 
 // Auto-restore cached titles on page load (for back navigation without bfcache)
-restoreCachedTitles();
+// Only if not about to receive a de-clickbait message (small delay to let popup send first)
+setTimeout(() => {
+  if (!_isProcessing) restoreCachedTitles();
+}, 200);
 
 /**
  * Auto-restore cached titles on page load.
