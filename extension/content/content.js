@@ -1,17 +1,18 @@
-// Prevent double-injection
-if (!window.__unbaitLoaded) {
-  window.__unbaitLoaded = true;
+// Prevent double-injection — wrap everything in this guard
+if (window.__unbaitLoaded) {
+  // Already loaded, skip
+} else {
+window.__unbaitLoaded = true;
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message.action === "de-clickbait") {
-      processHeadlines().then(sendResponse);
-      return true; // async response
-    }
-    if (message.action === "stream-result") {
-      applyStreamResult(message.result);
-    }
-  });
-}
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.action === "de-clickbait") {
+    processHeadlines().then(sendResponse);
+    return true; // async response
+  }
+  if (message.action === "stream-result") {
+    applyStreamResult(message.result);
+  }
+});
 
 // Restore icons after back/forward navigation (bfcache)
 window.addEventListener("pageshow", (event) => {
@@ -461,3 +462,5 @@ function looksLikeHeadlineLink(anchor) {
   const parentClasses = (parent.className || "").toLowerCase();
   return /article|card|story|post|teaser|item|feed|news|content/.test(parentClasses);
 }
+
+} // end double-injection guard
