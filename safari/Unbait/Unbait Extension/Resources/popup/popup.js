@@ -229,6 +229,7 @@ btnDeclickbait.addEventListener("click", async () => {
   btnDeclickbait.disabled = true;
   btnDeclickbait.classList.add("processing");
   btnDeclickbait.textContent = "Working...";
+  const _startTime = Date.now();
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -281,7 +282,8 @@ btnDeclickbait.addEventListener("click", async () => {
           }
         } else if (status.state === "done") {
           clearInterval(pollInterval);
-          statusEl.textContent = "Done!";
+          const elapsed = ((Date.now() - _startTime) / 1000).toFixed(1);
+          statusEl.textContent = `Done! (${elapsed}s)`;
           statusEl.className = "status-msg success";
           statsEl.classList.remove("hidden");
           statFound.textContent = status.found || 0;
