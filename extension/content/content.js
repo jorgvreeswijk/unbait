@@ -119,10 +119,12 @@ async function processHeadlines() {
   }
 
   try {
+    console.log(`[Unbait] Sending ${uncachedData.length} headlines to service worker...`);
     const response = await chrome.runtime.sendMessage({
       action: "rewrite-headlines",
       headlines: uncachedData,
     });
+    console.log("[Unbait] Service worker response:", response);
 
     if (response.error) {
       _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));

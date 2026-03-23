@@ -60,7 +60,10 @@ async function handleRewrite(headlines, tabId) {
   const enriched = await enrichWithContext(headlines);
 
   // Call the selected provider
-  return await callProvider(provider, apiKey, enriched, tabId);
+  console.log(`[Unbait] Calling ${provider} with ${enriched.length} headlines`);
+  const result = await callProvider(provider, apiKey, enriched, tabId);
+  console.log(`[Unbait] ${provider} returned:`, result.error || `${result.results?.length || 0} results`);
+  return result;
 }
 
 async function callProvider(provider, apiKey, headlines, tabId) {
@@ -547,6 +550,7 @@ async function callGemini(apiKey, headlines, tabId) {
   const BATCH_DELAY = 1500; // 1.5s between batches to avoid rate limits
   const MAX_RETRIES = 2;
   const allResults = [];
+  console.log(`[Unbait] Gemini: processing ${headlines.length} headlines in ${Math.ceil(headlines.length / BATCH_SIZE)} batches`);
 
   for (let i = 0; i < headlines.length; i += BATCH_SIZE) {
     const batch = headlines.slice(i, i + BATCH_SIZE);
@@ -612,8 +616,11 @@ async function callGemini(apiKey, headlines, tabId) {
           continue;
         }
 
+        console.log(`[Unbait] Gemini batch response (${text.length} chars):`, text.substring(0, 200));
+
         try {
           const results = parseAndSendResults(text, tabId);
+          console.log(`[Unbait] Gemini batch parsed ${results.length} results`);
           allResults.push(...results);
         } catch (parseErr) {
           console.error("[Unbait] Failed to parse Gemini response:", parseErr.message);
