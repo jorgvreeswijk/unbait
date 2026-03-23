@@ -1,0 +1,47 @@
+SHORT DESCRIPTION (132 chars max):
+Replace clickbait headlines with clear, informative titles using AI. See what articles are really about before you click.
+
+---
+
+FULL DESCRIPTION:
+
+Tired of vague, curiosity-driven headlines that hide what an article is actually about? Unbait reads the article for you and rewrites the headline so you can tell at a glance whether it's worth your time.
+
+HOW IT WORKS
+1. Click the Unbait icon or enable Always On for your favorite sites
+2. Unbait scans the page for headlines and briefly reads each article
+3. Your AI rewrites vague or misleading titles into clear, specific ones
+4. Good headlines are left untouched
+
+EXAMPLES
+Before: "You won't believe what this phone can do now"
+After: "Galaxy S26 adds real-time language translation to phone calls"
+
+Before: "This clever trick makes your laptop last way longer"
+After: "macOS 17 reduces background energy use by 40%"
+
+FEATURES
+- Choose your AI: works with Anthropic Claude, OpenAI GPT, or Google Gemini
+- Bring your own API key: no subscriptions, no middleman
+- Always On mode: auto-rewrite headlines on your favorite sites
+- One-click toggle: see the original title anytime
+- Smart caching: revisiting a page is instant, no extra API calls
+- Privacy first: your API key stays local, articles go directly to your AI provider
+- Works on any news site, tech blog, or content aggregator
+
+PRIVACY
+Unbait does not collect any data. There are no Unbait servers. Your API key is stored locally in your browser. Article text is sent directly to your chosen AI provider over HTTPS. Full privacy policy: https://unbait.link/privacy
+
+GETTING STARTED
+1. Install the extension
+2. Get an API key from Anthropic, OpenAI, or Google
+3. Click the Unbait icon, paste your key, and click "Unbait!"
+
+COST
+Unbait itself is free and open source. You pay your AI provider directly:
+- Anthropic Claude Haiku: < $0.01 per page
+- OpenAI GPT-4o mini: < $0.01 per page
+- Google Gemini Flash: free tier available (20 pages/day)
+
+SOURCE CODE
+Unbait is fully open source: https://github.com/jorgvreeswijk/unbait

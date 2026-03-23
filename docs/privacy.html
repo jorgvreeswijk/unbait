@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy - Unbait</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <style>
+    :root {
+      --teal: #0d9488;
+      --teal-light: #ccfbf1;
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-400: #9ca3af;
+      --gray-500: #6b7280;
+      --gray-600: #4b5563;
+      --gray-700: #374151;
+      --gray-800: #1f2937;
+      --gray-900: #111827;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--gray-800);
+      line-height: 1.7;
+      background: white;
+    }
+
+    nav {
+      position: fixed;
+      top: 0;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--gray-100);
+      z-index: 100;
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      text-decoration: none;
+      color: var(--gray-900);
+    }
+
+    .nav-logo svg { width: 32px; height: 32px; }
+    .nav-logo span { font-size: 1.25rem; font-weight: 700; color: var(--gray-700); margin-left: -1px; }
+
+    .nav-links { display: flex; gap: 2rem; align-items: center; }
+    .nav-links a { text-decoration: none; color: var(--gray-600); font-size: 0.95rem; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--teal); }
+
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 7rem 2rem 4rem;
+    }
+
+    h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      color: var(--gray-900);
+    }
+
+    .updated {
+      color: var(--gray-400);
+      font-size: 0.9rem;
+      margin-bottom: 2rem;
+    }
+
+    h2 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.5rem;
+      color: var(--gray-900);
+    }
+
+    p, li {
+      font-size: 0.95rem;
+      color: var(--gray-600);
+      margin-bottom: 0.75rem;
+    }
+
+    ul {
+      padding-left: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    li { margin-bottom: 0.4rem; }
+
+    a { color: var(--teal); }
+
+    .highlight {
+      background: var(--teal-light);
+      padding: 1rem 1.25rem;
+      border-radius: 8px;
+      margin: 1.5rem 0;
+    }
+
+    .highlight p { margin-bottom: 0; }
+
+    footer {
+      text-align: center;
+      padding: 3rem 2rem;
+      color: var(--gray-400);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--gray-100);
+      margin-top: 4rem;
+    }
+
+    footer a { color: var(--teal); text-decoration: none; }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <a href="/" class="nav-logo">
+      <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="16" cy="16" r="15" fill="#0d9488"/>
+        <text x="16" y="16" text-anchor="middle" dominant-baseline="central" font-family="-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif" font-size="19" font-weight="800" fill="white">U</text>
+      </svg>
+      <span>nbait</span>
+    </a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="https://github.com/jorgvreeswijk/unbait">GitHub</a>
+    </div>
+  </nav>
+
+  <main>
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: March 23, 2026</p>
+
+    <div class="highlight">
+      <p><strong>The short version:</strong> Unbait does not collect, store, or transmit any of your data to its own servers. There are no Unbait servers. Everything stays on your device or goes directly to your chosen AI provider.</p>
+    </div>
+
+    <h2>What Unbait does</h2>
+    <p>Unbait is a browser extension that replaces clickbait headlines with informative titles. To do this, it briefly fetches the text of articles on the page you are viewing and sends that text to an AI provider to generate a better headline.</p>
+
+    <h2>Data stored on your device</h2>
+    <ul>
+      <li><strong>API key</strong> — stored in your browser's local extension storage. Never sent anywhere except directly to your chosen AI provider over HTTPS.</li>
+      <li><strong>Provider preference</strong> — which AI provider you selected (Anthropic, OpenAI, or Google Gemini).</li>
+      <li><strong>Always On sites</strong> — the list of websites where you enabled automatic de-clickbaiting.</li>
+      <li><strong>Title cache</strong> — rewritten headlines are cached locally for up to 7 days to avoid repeated API calls. The cache is capped at 500 entries and can be cleared manually.</li>
+    </ul>
+
+    <h2>Data sent to third parties</h2>
+    <p>When Unbait rewrites headlines, it sends the following directly to your chosen AI provider:</p>
+    <ul>
+      <li>The original headline text</li>
+      <li>A brief excerpt of the article (first few paragraphs) for context</li>
+      <li>Your API key (for authentication)</li>
+    </ul>
+    <p>This data is sent directly from your browser to the AI provider's API. Unbait has no intermediary server. The AI providers and their privacy policies are:</p>
+    <ul>
+      <li><a href="https://www.anthropic.com/privacy">Anthropic (Claude)</a></li>
+      <li><a href="https://openai.com/policies/privacy-policy">OpenAI (GPT)</a></li>
+      <li><a href="https://policies.google.com/privacy">Google (Gemini)</a></li>
+    </ul>
+
+    <h2>Data NOT collected</h2>
+    <ul>
+      <li>No analytics or tracking</li>
+      <li>No user accounts or registration</li>
+      <li>No browsing history (beyond the cached titles you explicitly generated)</li>
+      <li>No personal information</li>
+      <li>No cookies</li>
+      <li>No data is ever sent to Unbait's own servers (there are none)</li>
+    </ul>
+
+    <h2>Permissions</h2>
+    <p>Unbait uses optional host permissions. It does not request access to all websites by default. When you click "Enable for this site" or manually trigger de-clickbaiting, the extension requests permission for that specific site only.</p>
+
+    <h2>Open source</h2>
+    <p>Unbait is fully open source. You can inspect the complete source code at <a href="https://github.com/jorgvreeswijk/unbait">github.com/jorgvreeswijk/unbait</a> to verify these claims.</p>
+
+    <h2>Changes to this policy</h2>
+    <p>If this policy changes, the updated version will be published at this URL. The extension itself does not auto-update this policy.</p>
+
+    <h2>Contact</h2>
+    <p>For questions about this privacy policy, open an issue on <a href="https://github.com/jorgvreeswijk/unbait/issues">GitHub</a>.</p>
+  </main>
+
+  <footer>
+    <p>Unbait is open-source and free. Built by <a href="https://github.com/jorgvreeswijk">Jorg Vreeswijk</a>.</p>
+    <p style="margin-top: 0.5rem;"><a href="/privacy">Privacy Policy</a></p>
+  </footer>
+
+</body>
+</html>
