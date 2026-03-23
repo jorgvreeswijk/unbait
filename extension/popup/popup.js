@@ -90,7 +90,7 @@ chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiK
   }
 });
 
-// Load current tab hostname + auto-sites state
+// Load current tab hostname + auto-sites state + existing stats
 (async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab?.url) {
@@ -101,6 +101,20 @@ chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiK
       updateSiteToggle();
     } catch {
       currentSiteEl.textContent = "Cannot detect site";
+    }
+  }
+
+  // Check if page already has Unbait results
+  if (tab?.id) {
+    try {
+      const stats = await chrome.tabs.sendMessage(tab.id, { action: "get-stats" });
+      if (stats && stats.count > 0) {
+        statsEl.classList.remove("hidden");
+        statFound.textContent = stats.found || stats.count;
+        statReplaced.textContent = stats.count;
+      }
+    } catch {
+      // Content script not injected yet — no stats to show
     }
   }
 })();

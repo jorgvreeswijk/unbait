@@ -12,6 +12,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === "stream-result") {
     applyStreamResult(message.result);
   }
+  if (message.action === "get-stats") {
+    const replaced = document.querySelectorAll(".unbait-replaced").length;
+    const icons = document.querySelectorAll(".unbait-icon").length;
+    sendResponse({ found: replaced + icons > 0 ? _unbaitElements.size || replaced : 0, count: replaced });
+  }
 });
 
 // Restore icons after back/forward navigation (bfcache)
