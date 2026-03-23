@@ -599,6 +599,7 @@ async function callGemini(apiKey, headlines, tabId) {
         }
 
         const data = await response.json();
+        console.log("[Unbait] Gemini raw API response:", JSON.stringify(data).substring(0, 500));
 
         // Check for safety blocks or empty responses
         const finishReason = data.candidates?.[0]?.finishReason;

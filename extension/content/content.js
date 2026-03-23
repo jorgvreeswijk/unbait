@@ -178,7 +178,15 @@ async function processHeadlines() {
     // Clean up any remaining loading states
     _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
 
-    return { success: true, found: headlines.length, count: replacedCount };
+    // Count all replaced titles (streaming + batch + cached)
+    // _unbaitApplied includes all IDs that were processed (including null titles)
+    // Count actual replacements by checking for the unbait-replaced class
+    let totalReplaced = 0;
+    _unbaitElements.forEach((el) => {
+      if (el.classList.contains("unbait-replaced")) totalReplaced++;
+    });
+
+    return { success: true, found: headlines.length, count: totalReplaced };
   } catch (err) {
     _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
     return { error: `Fout: ${err.message}` };
