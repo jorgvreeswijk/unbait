@@ -245,12 +245,14 @@ function restoreIcons() {
 // ---------------------------------------------------------------------------
 
 const YT_TITLE_SELECTORS = [
-  "ytd-rich-grid-media #video-title",           // Homepage grid
-  "ytd-rich-item-renderer #video-title",        // Homepage grid (alternate)
-  "ytd-video-renderer #video-title",             // Search results
-  "ytd-compact-video-renderer #video-title",     // Sidebar suggestions
-  "ytd-playlist-video-renderer #video-title",    // Playlist
-  "ytd-grid-video-renderer #video-title",        // Channel page grid
+  "ytd-rich-item-renderer h3",                   // Homepage grid (2026 layout)
+  "ytd-rich-grid-media h3",                      // Homepage grid (alternate)
+  "ytd-video-renderer h3",                       // Search results
+  "ytd-compact-video-renderer h3",               // Sidebar suggestions
+  "ytd-playlist-video-renderer h3",              // Playlist
+  "ytd-grid-video-renderer h3",                  // Channel page grid
+  "ytd-rich-grid-media #video-title",            // Legacy layout
+  "ytd-video-renderer #video-title",             // Legacy search
   "#video-title",                                // Catch-all fallback
 ];
 
@@ -260,8 +262,20 @@ function findYouTubeTitles() {
 
   for (const sel of YT_TITLE_SELECTORS) {
     document.querySelectorAll(sel).forEach((el) => {
-      const anchor = el.closest("a") || el.querySelector("a") || el;
-      const href = anchor.href || anchor.closest("a")?.href || "";
+      // Find the video link — may be on the element, a parent, or a sibling
+      let href = "";
+      const anchor = el.closest("a") || el.querySelector("a");
+      if (anchor) {
+        href = anchor.href;
+      } else {
+        // New YouTube layout: link is in a sibling or parent container
+        const container = el.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-playlist-video-renderer, yt-lockup-view-model");
+        if (container) {
+          const link = container.querySelector('a[href*="/watch"], a[href*="/shorts/"]');
+          if (link) href = link.href;
+        }
+      }
+
       const videoId = extractVideoId(href);
       if (!videoId || seen.has(videoId)) return;
       seen.add(videoId);
