@@ -594,7 +594,7 @@ async function callOpenAI(apiKey, headlines, tabId) {
  */
 async function callGeminiSingleRequest(apiKey, systemPrompt, userPrompt) {
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -620,7 +620,7 @@ async function callGeminiSingleRequest(apiKey, systemPrompt, userPrompt) {
 }
 
 /**
- * Call Google Gemini API (Gemini 2.0 Flash).
+ * Call Google Gemini API (Gemini 2.5 Flash).
  * Splits headlines into small batches to stay within free tier token limits.
  */
 async function callGemini(apiKey, headlines, tabId) {
