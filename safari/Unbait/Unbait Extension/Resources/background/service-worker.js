@@ -1,10 +1,36 @@
+// Track active job status per tab
+const _tabStatus = new Map();
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Verify sender is from our own extension or a valid tab
   if (sender.id !== chrome.runtime.id) return;
 
   if (message.action === "rewrite-headlines") {
-    handleRewrite(message.headlines, sender.tab?.id).then(sendResponse);
+    const tabId = sender.tab?.id;
+    _tabStatus.set(tabId, { state: "working", text: "Scanning headlines..." });
+    handleRewrite(message.headlines, tabId).then((result) => {
+      if (result && result.error) {
+        _tabStatus.set(tabId, { state: "error", text: result.error });
+      } else if (result && result.results) {
+        _tabStatus.set(tabId, {
+          state: "done",
+          text: "Done!",
+          found: message.headlines.length,
+          count: result.results.filter((r) => r.newTitle).length,
+        });
+      } else {
+        _tabStatus.delete(tabId);
+      }
+      sendResponse(result);
+    });
     return true; // async response
+  }
+
+  if (message.action === "get-tab-status") {
+    const tabId = message.tabId;
+    const status = _tabStatus.get(tabId) || null;
+    sendResponse(status);
+    return;
   }
 });
 
@@ -24,26 +50,46 @@ const CONFIG = {
   GEMINI_RETRY_BASE_MS: 10000,
   CLAUDE_MAX_TOKENS: 4096,
   OPENAI_MAX_TOKENS: 4096,
-  GEMINI_MAX_TOKENS: 2048,
+  GEMINI_MAX_TOKENS: 8192,
   AUTO_TRIGGER_DELAY_MS: 500,
 };
 
 // Always On: auto-trigger on page load for configured sites
+// Also: inject content script for cache restore on any previously de-clickbaited site
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== "complete" || !tab.url) return;
 
   try {
     const hostname = new URL(tab.url).hostname;
-    // autoSites in sync (not sensitive), apiKey in session (secure)
+
     Promise.all([
       chrome.storage.sync.get("autoSites"),
-      chrome.storage.local.get("apiKey"),
-    ]).then(([syncData, sessionData]) => {
+      chrome.storage.local.get(["apiKey", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini", "provider"]),
+    ]).then(async ([syncData, localData]) => {
       const autoSites = syncData.autoSites || [];
-      const apiKey = sessionData.apiKey;
-      if (!apiKey || !autoSites.includes(hostname)) return;
+      const provider = localData.provider || "anthropic";
+      const apiKey = localData[`apiKey_${provider}`] || localData.apiKey;
+      const isAlwaysOn = apiKey && autoSites.includes(hostname);
 
-      // Inject content script + CSS, then trigger
+      // Check if there are cached entries for this site's domain
+      let hasCachedEntries = false;
+      if (!isAlwaysOn) {
+        try {
+          const cacheKey = `unbait_cache_${provider}`;
+          const data = await chrome.storage.local.get(cacheKey);
+          const cache = data[cacheKey] || {};
+          hasCachedEntries = Object.keys(cache).some((url) => {
+            try { return new URL(url).hostname === hostname; } catch { return false; }
+          });
+        } catch {
+          // ignore cache check errors
+        }
+      }
+
+      if (!isAlwaysOn && !hasCachedEntries) return;
+
+      // Inject content script + CSS
+      // The content script auto-restores cached titles on load
       chrome.scripting.executeScript({
         target: { tabId },
         files: ["content/content.js"],
@@ -52,9 +98,13 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
           target: { tabId },
           files: ["content/content.css"],
         });
-        setTimeout(() => {
-          chrome.tabs.sendMessage(tabId, { action: "de-clickbait" }).catch(() => {});
-        }, CONFIG.AUTO_TRIGGER_DELAY_MS);
+
+        // Only trigger full de-clickbait for Always On sites
+        if (isAlwaysOn) {
+          setTimeout(() => {
+            chrome.tabs.sendMessage(tabId, { action: "de-clickbait" }).catch(() => {});
+          }, CONFIG.AUTO_TRIGGER_DELAY_MS);
+        }
       }).catch((e) => console.debug("[Unbait] Auto-inject failed:", e.message));
     });
   } catch {
@@ -76,13 +126,32 @@ async function handleRewrite(headlines, tabId) {
     return { error: "No API key set. Open the Unbait popup to enter your key." };
   }
 
-  // Fast partial fetch for context
-  const enriched = await enrichWithContext(headlines);
+  // Check if content script already provided context (Safari-compatible path)
+  const hasContentScriptContext = headlines.some(h => h.context);
+  let enriched;
+  if (hasContentScriptContext) {
+    // Content script already fetched context — only enrich cross-domain headlines without context
+    const needsContext = headlines.filter(h => !h.context);
+    const hasContext = headlines.filter(h => h.context);
+    if (needsContext.length > 0) {
+      _tabStatus.set(tabId, { state: "working", text: "Fetching cross-domain context..." });
+      const crossDomainEnriched = await enrichWithContext(needsContext);
+      enriched = [...hasContext, ...crossDomainEnriched];
+    } else {
+      enriched = headlines;
+    }
+    console.debug(`[Unbait] Context: ${hasContext.length} from content script, ${needsContext.length} cross-domain`);
+  } else {
+    // Fallback: fetch all context from service worker (Chrome path)
+    _tabStatus.set(tabId, { state: "working", text: "Fetching article context..." });
+    enriched = await enrichWithContext(headlines);
+  }
 
   // Call the selected provider
-  console.log(`[Unbait] Calling ${provider} with ${enriched.length} headlines`);
+  _tabStatus.set(tabId, { state: "working", text: `Rewriting with ${provider}...` });
+  console.debug(`[Unbait] Calling ${provider} with ${enriched.length} headlines`);
   const result = await callProvider(provider, apiKey, enriched, tabId);
-  console.log(`[Unbait] ${provider} returned:`, result.error || `${result.results?.length || 0} results`);
+  console.debug(`[Unbait] ${provider} returned:`, result.error || `${result.results?.length || 0} results`);
   return result;
 }
 
@@ -471,12 +540,30 @@ function tryParsePartialResults(text, alreadySent) {
  * Parse a non-streaming JSON response and send results to content script.
  */
 function parseAndSendResults(text, tabId) {
-  const jsonStr = text
+  let jsonStr = text
     .replace(/```json\n?/g, "")
     .replace(/```\n?/g, "")
     .trim();
 
-  const parsed = JSON.parse(jsonStr);
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch {
+    // Try to salvage truncated JSON: find last complete object and close the array
+    const lastComplete = jsonStr.lastIndexOf("}");
+    if (lastComplete > 0) {
+      const salvaged = jsonStr.substring(0, lastComplete + 1) + "]";
+      try {
+        parsed = JSON.parse(salvaged);
+        console.debug(`[Unbait] Salvaged truncated JSON (${parsed.length} results)`);
+      } catch {
+        throw new Error("Unexpected end of JSON input");
+      }
+    } else {
+      throw new Error("Unexpected end of JSON input");
+    }
+  }
+
   const validated = validateResults(parsed);
 
   for (const result of validated) {
@@ -542,7 +629,7 @@ async function callOpenAI(apiKey, headlines, tabId) {
  */
 async function callGeminiSingleRequest(apiKey, systemPrompt, userPrompt) {
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -568,12 +655,12 @@ async function callGeminiSingleRequest(apiKey, systemPrompt, userPrompt) {
 }
 
 /**
- * Call Google Gemini API (Gemini 2.0 Flash).
+ * Call Google Gemini API (Gemini 2.5 Flash).
  * Splits headlines into small batches to stay within free tier token limits.
  */
 async function callGemini(apiKey, headlines, tabId) {
   const allResults = [];
-  console.log(`[Unbait] Gemini: processing ${headlines.length} headlines in ${Math.ceil(headlines.length / CONFIG.GEMINI_BATCH_SIZE)} batches`);
+  console.debug(`[Unbait] Gemini: processing ${headlines.length} headlines in ${Math.ceil(headlines.length / CONFIG.GEMINI_BATCH_SIZE)} batches`);
 
   for (let i = 0; i < headlines.length; i += CONFIG.GEMINI_BATCH_SIZE) {
     const batch = headlines.slice(i, i + CONFIG.GEMINI_BATCH_SIZE);
@@ -594,7 +681,7 @@ async function callGemini(apiKey, headlines, tabId) {
             retries++;
             const errMsg = err?.error?.message || "unknown";
             const wait = CONFIG.GEMINI_RETRY_BASE_MS * retries;
-            console.log(`[Unbait] Gemini 429: "${errMsg}" — retry ${retries}/${CONFIG.GEMINI_MAX_RETRIES} in ${wait/1000}s...`);
+            console.debug(`[Unbait] Gemini 429: "${errMsg}" — retry ${retries}/${CONFIG.GEMINI_MAX_RETRIES} in ${wait/1000}s...`);
             await new Promise((r) => setTimeout(r, wait));
             continue;
           }
@@ -611,7 +698,6 @@ async function callGemini(apiKey, headlines, tabId) {
           return { error: `Gemini error (${status}): ${err?.error?.message || "Unknown error"}` };
         }
 
-        console.log("[Unbait] Gemini raw API response:", JSON.stringify(data).substring(0, 500));
 
         // Check for safety blocks or empty responses
         const finishReason = data.candidates?.[0]?.finishReason;
@@ -621,23 +707,26 @@ async function callGemini(apiKey, headlines, tabId) {
           continue;
         }
 
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        // Gemini 2.5 Flash may return multiple parts (thinking + response)
+        // Find the last text part, which contains the actual JSON output
+        const parts = data.candidates?.[0]?.content?.parts || [];
+        let text = "";
+        for (const part of parts) {
+          if (part.text) text = part.text; // take the last text part
+        }
 
         if (!text) {
-          console.warn("[Unbait] Gemini returned empty response, skipping batch");
+          console.warn("[Unbait] Gemini returned empty response, parts:", JSON.stringify(parts).substring(0, 300));
           batchDone = true;
           continue;
         }
 
-        console.log(`[Unbait] Gemini batch response (${text.length} chars):`, text.substring(0, 200));
 
         try {
           const results = parseAndSendResults(text, tabId);
-          console.log(`[Unbait] Gemini batch parsed ${results.length} results`);
           allResults.push(...results);
         } catch (parseErr) {
           console.error("[Unbait] Failed to parse Gemini response:", parseErr.message);
-          console.log("[Unbait] Raw Gemini text:", text.substring(0, 500));
         }
 
         batchDone = true;

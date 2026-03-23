@@ -32,6 +32,7 @@
           Go to <a href="https://console.anthropic.com/settings/keys" target="_blank">API Keys</a>, click <em>Create Key</em>, give it a name and copy the key immediately. You'll only see it once.</p>
           <div class="info-costs">
             <p>Model: <strong>Claude Haiku 4.5</strong> (fast &amp; affordable). Cost: <strong>&lt; $0.01 per page</strong>.</p>
+            <p style="margin-top: 0.5rem; font-size: 0.85rem; color: #0d9488;"><strong>Recommended.</strong> Best title quality, especially for non-English headlines. Streaming shows results as they arrive.</p>
           </div>
         </div>
 
@@ -45,6 +46,7 @@
           Go to <a href="https://platform.openai.com/api-keys" target="_blank">API Keys</a>, click <em>Create new secret key</em> and copy it immediately.</p>
           <div class="info-costs">
             <p>Model: <strong>GPT-4o mini</strong> (fast &amp; affordable). Cost: <strong>&lt; $0.01 per page</strong>.</p>
+            <p style="margin-top: 0.5rem; font-size: 0.85rem;">Good alternative. Streaming support, reliable results.</p>
           </div>
         </div>
 
@@ -53,7 +55,8 @@
           <p><strong>1. Get a key</strong><br>
           Go to <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a> and create a new API key. The free tier allows ~20 pages/day.</p>
           <div class="info-costs">
-            <p>Model: <strong>Gemini 2.0 Flash</strong>. Cost: <strong>Free but limited</strong> (20 pages/day, 5/min). For heavier use, enable billing in Google AI Studio.</p>
+            <p>Model: <strong>Gemini 2.5 Flash</strong>. Cost: <strong>Free but limited</strong> (20 pages/day, 5/min). For heavier use, enable billing in Google AI Studio.</p>
+            <p style="margin-top: 0.5rem; font-size: 0.85rem;">Good for trying Unbait for free. May replace fewer titles than Anthropic or OpenAI.</p>
           </div>
         </div>
       </div>
@@ -113,7 +116,12 @@
       </div>
     </div>
 
-    <button id="btn-about" class="btn-about">About Unbait</button>
+    <div style="display: flex; align-items: center; justify-content: center; gap: 0.75rem;">
+      <button id="btn-about" class="btn-about">About Unbait</button>
+      <a id="btn-beer" href="https://www.paypal.com/paypalme/unbaitlink" target="_blank" title="Buy me a beer" style="opacity: 0.35; transition: opacity 0.2s; display: flex; align-items: center;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0d9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 11h1a3 3 0 0 1 0 6h-1"/><path d="M9 12v6"/><path d="M13 12v6"/><path d="M14 7.5c-1 0-1.44.5-3 .5s-2-.5-3-.5-1.72.5-2.5.5a2.5 2.5 0 0 1 0-5c.78 0 1.57.5 2.5.5S9.44 2 11 2s2 1.5 3 1.5 1.72-.5 2.5-.5a2.5 2.5 0 0 1 0 5c-.78 0-1.5-.5-2.5-.5Z"/><path d="M5 8v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8"/></svg>
+      </a>
+    </div>
 
     <div id="about-panel" class="info-panel hidden">
       <h3>Why this plugin exists</h3>
@@ -131,9 +139,28 @@
       </div>
 
       <div class="info-costs">
+        <h3>Browser warnings</h3>
+        <p>Your browser may warn that Unbait can "read and modify webpages." This is correct: Unbait needs to read headlines and replace them with better ones. However, Unbait only activates on sites you explicitly enable. It does not run in the background or access any site without your permission. No data is collected, no browsing history is stored, and no information is sent anywhere except directly to your chosen AI provider.</p>
+      </div>
+
+      <div class="info-costs">
         <h3>Disclaimer</h3>
         <p>Unbait is provided as-is, without warranty. The author is not responsible for any costs, data loss, or other damages resulting from its use. Your API key is stored locally on your device and sent directly to your chosen provider over HTTPS.</p>
-        <p><strong>Tip:</strong> Set a monthly spending limit with your provider to avoid unexpected charges. For Anthropic: create a <a href="https://console.anthropic.com/settings/workspaces" target="_blank">workspace</a> and set limits under <a href="https://console.anthropic.com/settings/limits" target="_blank">Workspace &gt; Limits</a>.</p>
+        <p style="margin-top: 0.75rem; font-size: 0.85rem;">
+          <a href="https://unbait.link/privacy" target="_blank">Privacy Policy</a> &middot;
+          <a href="https://github.com/jorgvreeswijk/unbait/blob/main/LICENSE" target="_blank">MIT License</a>
+        </p>
+      </div>
+
+      <div class="info-costs" style="text-align: center; padding-top: 0.5rem;">
+        <div style="display: flex; justify-content: center; margin-bottom: 0.5rem;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0d9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 11h1a3 3 0 0 1 0 6h-1"/><path d="M9 12v6"/><path d="M13 12v6"/><path d="M14 7.5c-1 0-1.44.5-3 .5s-2-.5-3-.5-1.72.5-2.5.5a2.5 2.5 0 0 1 0-5c.78 0 1.57.5 2.5.5S9.44 2 11 2s2 1.5 3 1.5 1.72-.5 2.5-.5a2.5 2.5 0 0 1 0 5c-.78 0-1.5-.5-2.5-.5Z"/><path d="M5 8v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8"/></svg>
+        </div>
+        <p style="font-size: 0.85rem;">Unbait is free and open source. If it saves you from clickbait, consider buying me a beer.</p>
+        <div style="display: flex; gap: 0.5rem; justify-content: center; margin-top: 0.5rem;">
+          <a href="https://github.com/sponsors/jorgvreeswijk" target="_blank" class="donate-btn">GitHub Sponsors</a>
+          <a href="https://www.paypal.com/paypalme/unbaitlink" target="_blank" class="donate-btn">PayPal</a>
+        </div>
       </div>
     </div>
   </div>

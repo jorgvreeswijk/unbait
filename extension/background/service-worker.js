@@ -126,9 +126,26 @@ async function handleRewrite(headlines, tabId) {
     return { error: "No API key set. Open the Unbait popup to enter your key." };
   }
 
-  // Fast partial fetch for context
-  _tabStatus.set(tabId, { state: "working", text: "Fetching article context..." });
-  const enriched = await enrichWithContext(headlines);
+  // Check if content script already provided context (Safari-compatible path)
+  const hasContentScriptContext = headlines.some(h => h.context);
+  let enriched;
+  if (hasContentScriptContext) {
+    // Content script already fetched context — only enrich cross-domain headlines without context
+    const needsContext = headlines.filter(h => !h.context);
+    const hasContext = headlines.filter(h => h.context);
+    if (needsContext.length > 0) {
+      _tabStatus.set(tabId, { state: "working", text: "Fetching cross-domain context..." });
+      const crossDomainEnriched = await enrichWithContext(needsContext);
+      enriched = [...hasContext, ...crossDomainEnriched];
+    } else {
+      enriched = headlines;
+    }
+    console.debug(`[Unbait] Context: ${hasContext.length} from content script, ${needsContext.length} cross-domain`);
+  } else {
+    // Fallback: fetch all context from service worker (Chrome path)
+    _tabStatus.set(tabId, { state: "working", text: "Fetching article context..." });
+    enriched = await enrichWithContext(headlines);
+  }
 
   // Call the selected provider
   _tabStatus.set(tabId, { state: "working", text: `Rewriting with ${provider}...` });

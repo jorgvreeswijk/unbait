@@ -1,14 +1,101 @@
-// Prevent double-injection
-if (!window.__unbaitLoaded) {
-  window.__unbaitLoaded = true;
+// Prevent double-injection — wrap everything in this guard
+if (window.__unbaitLoaded) {
+  // Already loaded, skip
+} else {
+window.__unbaitLoaded = true;
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message.action === "de-clickbait") {
-      processHeadlines().then(sendResponse);
-      return true; // async response
+let _isProcessing = false;
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.action === "de-clickbait") {
+    if (_isProcessing) {
+      sendResponse({ error: "Already processing, please wait." });
+      return true;
     }
-    if (message.action === "stream-result") {
-      applyStreamResult(message.result);
+    _isProcessing = true;
+    processHeadlines().then((result) => {
+      _isProcessing = false;
+      sendResponse(result);
+    }).catch((err) => {
+      _isProcessing = false;
+      sendResponse({ error: err.message });
+    });
+    return true; // async response
+  }
+  if (message.action === "stream-result") {
+    applyStreamResult(message.result);
+  }
+  if (message.action === "get-stats") {
+    const replaced = document.querySelectorAll(".unbait-replaced").length;
+    const icons = document.querySelectorAll(".unbait-icon").length;
+    sendResponse({ found: replaced + icons > 0 ? _unbaitElements.size || replaced : 0, count: replaced });
+  }
+});
+
+// Restore cached titles after back/forward navigation (bfcache)
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) restoreIcons();
+});
+
+// Auto-restore cached titles on page load (for back navigation without bfcache)
+// Only if not about to receive a de-clickbait message (small delay to let popup send first)
+setTimeout(() => {
+  if (!_isProcessing) restoreCachedTitles();
+}, 200);
+
+/**
+ * Auto-restore cached titles on page load.
+ * Scans all headlines on the page and applies cached titles if found.
+ * This runs automatically when the content script loads, so previously
+ * de-clickbaited pages show their improved titles after back-navigation.
+ */
+async function restoreCachedTitles() {
+  try {
+    const headlines = findHeadlines();
+    if (headlines.length === 0) return;
+
+    const provider = await getCurrentProvider();
+    const cache = await getCache(provider);
+    if (!cache || Object.keys(cache).length === 0) return;
+
+    let restoredCount = 0;
+    for (const item of headlines) {
+      const cached = cache[item.url];
+      if (cached && cached.newTitle && Date.now() - cached.ts < CONFIG.CACHE_MAX_AGE_MS) {
+        renderReplacedHeadline(item.element, cached.newTitle, item.text);
+        restoredCount++;
+      }
+    }
+
+    if (restoredCount > 0) {
+      console.debug(`[Unbait] Restored ${restoredCount} cached titles`);
+    }
+  } catch {
+    // Silently fail — this is a best-effort restore
+  }
+}
+
+function restoreIcons() {
+  document.querySelectorAll(".unbait-replaced").forEach((el) => {
+    if (!el.parentNode?.querySelector(".unbait-icon") && el.dataset.unbaitNew) {
+      const icon = document.createElement("span");
+      icon.className = "unbait-icon";
+      icon.title = "Click to show original";
+      icon.setAttribute("role", "button");
+      icon.setAttribute("tabindex", "0");
+      icon.setAttribute("aria-label", "Toggle original headline");
+      icon.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleTitle(el, icon);
+      });
+      icon.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          icon.click();
+        }
+      });
+      el.parentNode.insertBefore(icon, el.nextSibling);
     }
   });
 }
@@ -25,7 +112,116 @@ const CONFIG = {
   MIN_LINK_WIDTH_PX: 100,
   MIN_LINK_HEIGHT_PX: 20,
   MIN_PATH_LENGTH: 5,
+  CONTEXT_CONCURRENCY: 10,
+  CONTEXT_TIMEOUT_MS: 6000,
+  CONTEXT_MAX_BYTES: 131072,
+  CONTEXT_MAX_CHARS: 800,
+  META_DESC_MAX_CHARS: 300,
+  JSONLD_MAX_CHARS: 600,
+  PARAGRAPH_MAX_CHARS: 800,
+  MIN_PARAGRAPH_LENGTH: 40,
 };
+
+function _decodeEntities(str) {
+  return str.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ").trim();
+}
+
+function _extractMetaDesc(html) {
+  const og = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)
+    || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i);
+  const meta = html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)
+    || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i);
+  return (og?.[1] || meta?.[1] || "").substring(0, CONFIG.META_DESC_MAX_CHARS);
+}
+
+function _extractJsonLd(html) {
+  const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    try {
+      let data = JSON.parse(m[1]);
+      if (data["@graph"]) data = data["@graph"];
+      const items = Array.isArray(data) ? data : [data];
+      for (const item of items) {
+        const t = (item["@type"] || "").toLowerCase();
+        if (t.includes("article") || t.includes("newsarticle") || t.includes("blogposting") || t.includes("reportage")) {
+          const body = item.articleBody || "";
+          const desc = item.description || "";
+          const text = body.length > desc.length ? body : desc;
+          if (text) return _decodeEntities(text).substring(0, CONFIG.JSONLD_MAX_CHARS);
+        }
+      }
+    } catch { /* skip */ }
+  }
+  return "";
+}
+
+function _extractArticleContext(html) {
+  const jsonLd = _extractJsonLd(html);
+  const metaDesc = _extractMetaDesc(html);
+  let bodyText = "";
+  let cleaned = html.replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "").replace(/<nav[\s\S]*?<\/nav>/gi, "")
+    .replace(/<header[\s\S]*?<\/header>/gi, "").replace(/<footer[\s\S]*?<\/footer>/gi, "")
+    .replace(/<aside[\s\S]*?<\/aside>/gi, "");
+  const artMatch = cleaned.match(/<(?:article|div)[^>]*(?:class|id)=["'][^"']*(?:article|story|post|entry|content)[-_]?(?:body|content|text|area)[^"']*["'][^>]*>([\s\S]*)/i)
+    || cleaned.match(/<article[^>]*>([\s\S]*)/i);
+  const region = artMatch ? artMatch[0] : cleaned;
+  const paragraphs = [];
+  let totalLen = 0;
+  const pRe = /<p[^>]*>([\s\S]*?)<\/p>/gi;
+  let pm;
+  while ((pm = pRe.exec(region)) !== null && totalLen < CONFIG.PARAGRAPH_MAX_CHARS) {
+    const text = _decodeEntities(pm[1].replace(/<[^>]+>/g, ""));
+    if (text.length < CONFIG.MIN_PARAGRAPH_LENGTH) continue;
+    paragraphs.push(text);
+    totalLen += text.length;
+  }
+  bodyText = paragraphs.join(" ");
+  const best = jsonLd || bodyText || "";
+  const extra = metaDesc && metaDesc !== best ? metaDesc : "";
+  if (best && extra) return (best + " | " + extra).substring(0, CONFIG.CONTEXT_MAX_CHARS);
+  return (best || extra || "").substring(0, CONFIG.CONTEXT_MAX_CHARS);
+}
+
+async function enrichHeadlinesWithContext(headlines) {
+  const currentHost = window.location.hostname;
+  const results = [];
+  for (let i = 0; i < headlines.length; i += CONFIG.CONTEXT_CONCURRENCY) {
+    const batch = headlines.slice(i, i + CONFIG.CONTEXT_CONCURRENCY);
+    const promises = batch.map(async (h) => {
+      try {
+        const url = new URL(h.url);
+        if (url.hostname !== currentHost) return h;
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), CONFIG.CONTEXT_TIMEOUT_MS);
+        const resp = await fetch(h.url, { signal: controller.signal });
+        clearTimeout(tid);
+        if (!resp.ok) return h;
+        const ct = resp.headers.get("content-type") || "";
+        if (!ct.includes("text/html")) return h;
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let html = "";
+        let bytes = 0;
+        while (bytes < CONFIG.CONTEXT_MAX_BYTES) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          html += decoder.decode(value, { stream: true });
+          bytes += value.length;
+        }
+        reader.cancel();
+        return { ...h, context: _extractArticleContext(html) };
+      } catch { return h; }
+    });
+    results.push(...(await Promise.all(promises)));
+  }
+  const withCtx = results.filter(h => h.context).length;
+  console.debug("[Unbait] Context: " + withCtx + "/" + results.length + " from content script");
+  return results;
+}
 
 // Global maps to track elements and applied results
 const _unbaitElements = new Map();
@@ -138,7 +334,7 @@ function categorizeHeadlines(headlines, cache) {
  */
 async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFound) {
   try {
-    console.log(`[Unbait] Sending ${uncachedData.length} headlines to service worker...`);
+    console.debug(`[Unbait] Sending ${uncachedData.length} headlines to service worker...`);
 
     let response;
     try {
@@ -158,7 +354,6 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
       throw e;
     }
 
-    console.log("[Unbait] Service worker response:", response);
 
     if (!response) {
       _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
@@ -219,7 +414,10 @@ async function processHeadlines() {
     return { success: true, found: headlines.length, count: cachedCount, cached: true };
   }
 
-  return fetchAndApplyResults(uncachedData, provider, cachedCount, headlines.length);
+  // Enrich with article context from content script (Safari-compatible)
+  const enriched = await enrichHeadlinesWithContext(uncachedData);
+
+  return fetchAndApplyResults(enriched, provider, cachedCount, headlines.length);
 }
 
 /**
@@ -431,3 +629,5 @@ function looksLikeHeadlineLink(anchor) {
   const parentClasses = (parent.className || "").toLowerCase();
   return /article|card|story|post|teaser|item|feed|news|content/.test(parentClasses);
 }
+
+} // end double-injection guard

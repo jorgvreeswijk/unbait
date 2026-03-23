@@ -112,7 +112,116 @@ const CONFIG = {
   MIN_LINK_WIDTH_PX: 100,
   MIN_LINK_HEIGHT_PX: 20,
   MIN_PATH_LENGTH: 5,
+  CONTEXT_CONCURRENCY: 10,
+  CONTEXT_TIMEOUT_MS: 6000,
+  CONTEXT_MAX_BYTES: 131072,
+  CONTEXT_MAX_CHARS: 800,
+  META_DESC_MAX_CHARS: 300,
+  JSONLD_MAX_CHARS: 600,
+  PARAGRAPH_MAX_CHARS: 800,
+  MIN_PARAGRAPH_LENGTH: 40,
 };
+
+function _decodeEntities(str) {
+  return str.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ").trim();
+}
+
+function _extractMetaDesc(html) {
+  const og = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)
+    || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i);
+  const meta = html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)
+    || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i);
+  return (og?.[1] || meta?.[1] || "").substring(0, CONFIG.META_DESC_MAX_CHARS);
+}
+
+function _extractJsonLd(html) {
+  const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    try {
+      let data = JSON.parse(m[1]);
+      if (data["@graph"]) data = data["@graph"];
+      const items = Array.isArray(data) ? data : [data];
+      for (const item of items) {
+        const t = (item["@type"] || "").toLowerCase();
+        if (t.includes("article") || t.includes("newsarticle") || t.includes("blogposting") || t.includes("reportage")) {
+          const body = item.articleBody || "";
+          const desc = item.description || "";
+          const text = body.length > desc.length ? body : desc;
+          if (text) return _decodeEntities(text).substring(0, CONFIG.JSONLD_MAX_CHARS);
+        }
+      }
+    } catch { /* skip */ }
+  }
+  return "";
+}
+
+function _extractArticleContext(html) {
+  const jsonLd = _extractJsonLd(html);
+  const metaDesc = _extractMetaDesc(html);
+  let bodyText = "";
+  let cleaned = html.replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "").replace(/<nav[\s\S]*?<\/nav>/gi, "")
+    .replace(/<header[\s\S]*?<\/header>/gi, "").replace(/<footer[\s\S]*?<\/footer>/gi, "")
+    .replace(/<aside[\s\S]*?<\/aside>/gi, "");
+  const artMatch = cleaned.match(/<(?:article|div)[^>]*(?:class|id)=["'][^"']*(?:article|story|post|entry|content)[-_]?(?:body|content|text|area)[^"']*["'][^>]*>([\s\S]*)/i)
+    || cleaned.match(/<article[^>]*>([\s\S]*)/i);
+  const region = artMatch ? artMatch[0] : cleaned;
+  const paragraphs = [];
+  let totalLen = 0;
+  const pRe = /<p[^>]*>([\s\S]*?)<\/p>/gi;
+  let pm;
+  while ((pm = pRe.exec(region)) !== null && totalLen < CONFIG.PARAGRAPH_MAX_CHARS) {
+    const text = _decodeEntities(pm[1].replace(/<[^>]+>/g, ""));
+    if (text.length < CONFIG.MIN_PARAGRAPH_LENGTH) continue;
+    paragraphs.push(text);
+    totalLen += text.length;
+  }
+  bodyText = paragraphs.join(" ");
+  const best = jsonLd || bodyText || "";
+  const extra = metaDesc && metaDesc !== best ? metaDesc : "";
+  if (best && extra) return (best + " | " + extra).substring(0, CONFIG.CONTEXT_MAX_CHARS);
+  return (best || extra || "").substring(0, CONFIG.CONTEXT_MAX_CHARS);
+}
+
+async function enrichHeadlinesWithContext(headlines) {
+  const currentHost = window.location.hostname;
+  const results = [];
+  for (let i = 0; i < headlines.length; i += CONFIG.CONTEXT_CONCURRENCY) {
+    const batch = headlines.slice(i, i + CONFIG.CONTEXT_CONCURRENCY);
+    const promises = batch.map(async (h) => {
+      try {
+        const url = new URL(h.url);
+        if (url.hostname !== currentHost) return h;
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), CONFIG.CONTEXT_TIMEOUT_MS);
+        const resp = await fetch(h.url, { signal: controller.signal });
+        clearTimeout(tid);
+        if (!resp.ok) return h;
+        const ct = resp.headers.get("content-type") || "";
+        if (!ct.includes("text/html")) return h;
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let html = "";
+        let bytes = 0;
+        while (bytes < CONFIG.CONTEXT_MAX_BYTES) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          html += decoder.decode(value, { stream: true });
+          bytes += value.length;
+        }
+        reader.cancel();
+        return { ...h, context: _extractArticleContext(html) };
+      } catch { return h; }
+    });
+    results.push(...(await Promise.all(promises)));
+  }
+  const withCtx = results.filter(h => h.context).length;
+  console.debug("[Unbait] Context: " + withCtx + "/" + results.length + " from content script");
+  return results;
+}
 
 // Global maps to track elements and applied results
 const _unbaitElements = new Map();
@@ -305,7 +414,10 @@ async function processHeadlines() {
     return { success: true, found: headlines.length, count: cachedCount, cached: true };
   }
 
-  return fetchAndApplyResults(uncachedData, provider, cachedCount, headlines.length);
+  // Enrich with article context from content script (Safari-compatible)
+  const enriched = await enrichHeadlinesWithContext(uncachedData);
+
+  return fetchAndApplyResults(enriched, provider, cachedCount, headlines.length);
 }
 
 /**
