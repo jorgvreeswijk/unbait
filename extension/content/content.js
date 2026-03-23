@@ -52,7 +52,7 @@ async function restoreCachedTitles() {
     }
 
     if (restoredCount > 0) {
-      console.log(`[Unbait] Restored ${restoredCount} cached titles`);
+      console.debug(`[Unbait] Restored ${restoredCount} cached titles`);
     }
   } catch {
     // Silently fail — this is a best-effort restore
@@ -209,7 +209,7 @@ function categorizeHeadlines(headlines, cache) {
  */
 async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFound) {
   try {
-    console.log(`[Unbait] Sending ${uncachedData.length} headlines to service worker...`);
+    console.debug(`[Unbait] Sending ${uncachedData.length} headlines to service worker...`);
 
     let response;
     try {
@@ -229,7 +229,6 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
       throw e;
     }
 
-    console.log("[Unbait] Service worker response:", response);
 
     if (!response) {
       _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));

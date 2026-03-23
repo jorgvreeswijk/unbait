@@ -132,9 +132,9 @@ async function handleRewrite(headlines, tabId) {
 
   // Call the selected provider
   _tabStatus.set(tabId, { state: "working", text: `Rewriting with ${provider}...` });
-  console.log(`[Unbait] Calling ${provider} with ${enriched.length} headlines`);
+  console.debug(`[Unbait] Calling ${provider} with ${enriched.length} headlines`);
   const result = await callProvider(provider, apiKey, enriched, tabId);
-  console.log(`[Unbait] ${provider} returned:`, result.error || `${result.results?.length || 0} results`);
+  console.debug(`[Unbait] ${provider} returned:`, result.error || `${result.results?.length || 0} results`);
   return result;
 }
 
@@ -538,7 +538,7 @@ function parseAndSendResults(text, tabId) {
       const salvaged = jsonStr.substring(0, lastComplete + 1) + "]";
       try {
         parsed = JSON.parse(salvaged);
-        console.log(`[Unbait] Salvaged truncated JSON (${parsed.length} results)`);
+        console.debug(`[Unbait] Salvaged truncated JSON (${parsed.length} results)`);
       } catch {
         throw new Error("Unexpected end of JSON input");
       }
@@ -643,7 +643,7 @@ async function callGeminiSingleRequest(apiKey, systemPrompt, userPrompt) {
  */
 async function callGemini(apiKey, headlines, tabId) {
   const allResults = [];
-  console.log(`[Unbait] Gemini: processing ${headlines.length} headlines in ${Math.ceil(headlines.length / CONFIG.GEMINI_BATCH_SIZE)} batches`);
+  console.debug(`[Unbait] Gemini: processing ${headlines.length} headlines in ${Math.ceil(headlines.length / CONFIG.GEMINI_BATCH_SIZE)} batches`);
 
   for (let i = 0; i < headlines.length; i += CONFIG.GEMINI_BATCH_SIZE) {
     const batch = headlines.slice(i, i + CONFIG.GEMINI_BATCH_SIZE);
@@ -664,7 +664,7 @@ async function callGemini(apiKey, headlines, tabId) {
             retries++;
             const errMsg = err?.error?.message || "unknown";
             const wait = CONFIG.GEMINI_RETRY_BASE_MS * retries;
-            console.log(`[Unbait] Gemini 429: "${errMsg}" — retry ${retries}/${CONFIG.GEMINI_MAX_RETRIES} in ${wait/1000}s...`);
+            console.debug(`[Unbait] Gemini 429: "${errMsg}" — retry ${retries}/${CONFIG.GEMINI_MAX_RETRIES} in ${wait/1000}s...`);
             await new Promise((r) => setTimeout(r, wait));
             continue;
           }
@@ -681,7 +681,6 @@ async function callGemini(apiKey, headlines, tabId) {
           return { error: `Gemini error (${status}): ${err?.error?.message || "Unknown error"}` };
         }
 
-        console.log("[Unbait] Gemini raw API response:", JSON.stringify(data).substring(0, 500));
 
         // Check for safety blocks or empty responses
         const finishReason = data.candidates?.[0]?.finishReason;
@@ -705,15 +704,12 @@ async function callGemini(apiKey, headlines, tabId) {
           continue;
         }
 
-        console.log(`[Unbait] Gemini batch response (${text.length} chars):`, text.substring(0, 200));
 
         try {
           const results = parseAndSendResults(text, tabId);
-          console.log(`[Unbait] Gemini batch parsed ${results.length} results`);
           allResults.push(...results);
         } catch (parseErr) {
           console.error("[Unbait] Failed to parse Gemini response:", parseErr.message);
-          console.log("[Unbait] Raw Gemini text:", text.substring(0, 500));
         }
 
         batchDone = true;
