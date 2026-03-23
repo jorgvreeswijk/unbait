@@ -49,23 +49,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-// Restore cached titles after back/forward navigation (bfcache)
+// Restore cached titles after back/forward navigation
+// Multiple strategies because Safari is inconsistent about which events fire:
+
+// Strategy 1: pageshow with persisted (standard bfcache)
 window.addEventListener("pageshow", (event) => {
-  if (event.persisted) {
-    restoreCachedTitles();
-  }
+  if (event.persisted) restoreCachedTitles();
 });
 
-// Fallback: also restore when tab becomes visible again (Safari sometimes
-// doesn't fire pageshow but does fire visibilitychange)
+// Strategy 2: popstate (fires on back/forward in most browsers)
+window.addEventListener("popstate", () => {
+  if (!_isProcessing) restoreCachedTitles();
+});
+
+// Strategy 3: visibilitychange (fallback for Safari)
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && !_isProcessing) {
-    // Check if there are cached titles that aren't applied yet
     const hasUnbaitElements = document.querySelector(".unbait-replaced");
     if (!hasUnbaitElements) {
       restoreCachedTitles();
     } else {
-      // DOM has unbait elements but icons may be missing
       restoreIcons();
     }
   }
