@@ -289,9 +289,13 @@ async function renderSitesList() {
     const item = document.createElement("div");
     item.className = "site-item";
 
-    const name = document.createElement("span");
+    const name = document.createElement("a");
     name.className = "site-name";
     name.textContent = site;
+    name.href = `https://${site}`;
+    name.target = "_blank";
+    name.rel = "noopener";
+    name.title = `Open ${site}`;
 
     const removeBtn = document.createElement("button");
     removeBtn.className = "btn-remove";
@@ -344,4 +348,27 @@ async function addSiteManually() {
 btnAddSite.addEventListener("click", addSiteManually);
 addSiteInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") addSiteManually();
+});
+
+// Clear title cache (all providers)
+document.getElementById("btn-clear-cache").addEventListener("click", async () => {
+  const allData = await chrome.storage.local.get(null);
+  const cacheKeys = Object.keys(allData).filter((k) => k.startsWith("unbait_cache"));
+  if (cacheKeys.length === 0) {
+    document.getElementById("btn-clear-cache").textContent = "Cache is empty";
+    setTimeout(() => {
+      document.getElementById("btn-clear-cache").innerHTML =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg> Clear title cache';
+    }, 1500);
+    return;
+  }
+  await chrome.storage.local.remove(cacheKeys);
+  const btn = document.getElementById("btn-clear-cache");
+  btn.textContent = `Cleared ${cacheKeys.length} cache(s)`;
+  btn.style.color = "#0d9488";
+  setTimeout(() => {
+    btn.innerHTML =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg> Clear title cache';
+    btn.style.color = "";
+  }, 2000);
 });
