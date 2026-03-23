@@ -419,32 +419,41 @@ function replaceThumbnail(videoId, container) {
 // ---------------------------------------------------------------------------
 
 function renderReplacedHeadline(el, newTitle, originalText) {
-  // YouTube's data-binding framework re-renders text content, overriding our changes.
-  // Solution: clone the text element to break YouTube's binding, then set our text.
-  const textTarget =
-    el.querySelector("span.yt-core-attributed-string") ||
-    el.querySelector("yt-formatted-string") ||
-    el.querySelector("span") ||
+  // DeArrow-inspired approach: DON'T modify YouTube's elements.
+  // Instead, create a NEW element and HIDE the original with CSS.
+  // This prevents YouTube's data-binding from overriding our changes.
+
+  // Find the title link/container inside h3
+  const titleLink = el.querySelector("a.yt-lockup-metadata-view-model__title") ||
+    el.querySelector("a#video-title") ||
+    el.querySelector("a") ||
     el;
 
-  // Clone the element to break YouTube's data binding
-  const clone = textTarget.cloneNode(false); // shallow clone — no children
-  clone.textContent = newTitle;
-  if (textTarget.parentNode) {
-    textTarget.parentNode.replaceChild(clone, textTarget);
-  }
+  // Check if we already added a custom title
+  let customTitle = el.querySelector(".unbait-custom-title");
+  if (customTitle) {
+    customTitle.textContent = newTitle;
+  } else {
+    // Hide original title content (not the link itself, just the text)
+    const originalSpan = titleLink.querySelector("span.yt-core-attributed-string") ||
+      titleLink.querySelector("yt-formatted-string") ||
+      titleLink.querySelector("span");
+    if (originalSpan) {
+      originalSpan.style.display = "none";
+      originalSpan.classList.add("unbait-original-hidden");
+    }
 
-  // Also update the parent <a> aria-label
-  const titleLink = el.querySelector("a.yt-lockup-metadata-view-model__title");
-  if (titleLink) {
-    titleLink.setAttribute("aria-label", newTitle);
-    // Clone the link too to prevent YouTube from restoring via its binding
-    const linkClone = titleLink.cloneNode(true);
-    // Update text in the cloned link
-    const innerSpan = linkClone.querySelector("span.yt-core-attributed-string, span");
-    if (innerSpan) innerSpan.textContent = newTitle;
-    if (titleLink.parentNode) {
-      titleLink.parentNode.replaceChild(linkClone, titleLink);
+    // Create our custom title element
+    customTitle = document.createElement("span");
+    customTitle.className = "unbait-custom-title";
+    customTitle.textContent = newTitle;
+    customTitle.style.cssText = "display: inline; white-space: normal; word-break: break-word;";
+
+    // Insert our title inside the link (so clicking still navigates)
+    if (originalSpan && originalSpan.parentNode) {
+      originalSpan.parentNode.insertBefore(customTitle, originalSpan);
+    } else {
+      titleLink.appendChild(customTitle);
     }
   }
 
@@ -453,7 +462,7 @@ function renderReplacedHeadline(el, newTitle, originalText) {
   el.dataset.unbaitOriginal = originalText;
   el.dataset.unbaitNew = newTitle;
 
-  // Mark the renderer container so MutationObserver skips it
+  // Mark the renderer container
   const renderer = el.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer");
   if (renderer) renderer.dataset.unbaitProcessed = "true";
 
@@ -514,16 +523,21 @@ function applyStreamResult(result) {
 }
 
 function toggleTitle(el, icon) {
-  const target = el.querySelector("span.yt-core-attributed-string") || el.querySelector("yt-formatted-string") || el;
+  const customTitle = el.querySelector(".unbait-custom-title");
+  const originalSpan = el.querySelector(".unbait-original-hidden");
   const isShowingOriginal = icon.classList.contains("showing-original");
 
   if (isShowingOriginal) {
-    target.textContent = el.dataset.unbaitNew;
+    // Show unbait title
+    if (customTitle) customTitle.style.display = "inline";
+    if (originalSpan) originalSpan.style.display = "none";
     el.title = `Original: ${el.dataset.unbaitOriginal}`;
     icon.title = "Click to show original";
     icon.classList.remove("showing-original");
   } else {
-    target.textContent = el.dataset.unbaitOriginal;
+    // Show original
+    if (customTitle) customTitle.style.display = "none";
+    if (originalSpan) originalSpan.style.display = "";
     el.title = `Unbait: ${el.dataset.unbaitNew}`;
     icon.title = "Click to show Unbait title";
     icon.classList.add("showing-original");
