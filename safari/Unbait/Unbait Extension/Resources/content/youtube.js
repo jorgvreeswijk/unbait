@@ -419,16 +419,21 @@ function replaceThumbnail(videoId, container) {
 // ---------------------------------------------------------------------------
 
 function renderReplacedHeadline(el, newTitle, originalText) {
-  // YouTube uses custom elements like <yt-formatted-string> inside h3.
-  // Setting textContent on h3 destroys the internal structure and YouTube
-  // may re-render it. Instead, find the deepest text-bearing element.
-  const formattedString = el.querySelector("yt-formatted-string") || el.querySelector("span") || el;
-  formattedString.textContent = newTitle;
-  // Also set on parent to prevent YouTube from re-rendering from data
-  if (formattedString !== el) {
-    formattedString.setAttribute("title", newTitle);
-    // Remove aria-label that YouTube may use to restore text
-    formattedString.removeAttribute("aria-label");
+  // YouTube 2026 layout: h3 > a.yt-lockup-metadata-view-model__title > span.yt-core-attributed-string
+  // Target the innermost text element to avoid YouTube's framework overriding changes.
+  const textTarget =
+    el.querySelector("span.yt-core-attributed-string") ||
+    el.querySelector("yt-formatted-string") ||
+    el.querySelector("span") ||
+    el;
+
+  // Clear all child spans (YouTube splits text into multiple spans)
+  textTarget.textContent = newTitle;
+
+  // Also update the parent <a> aria-label which YouTube uses for accessibility
+  const titleLink = el.querySelector("a.yt-lockup-metadata-view-model__title");
+  if (titleLink) {
+    titleLink.setAttribute("aria-label", newTitle);
   }
   el.classList.add("unbait-replaced");
   el.title = `Original: ${originalText}`;
@@ -492,7 +497,7 @@ function applyStreamResult(result) {
 }
 
 function toggleTitle(el, icon) {
-  const target = el.querySelector("yt-formatted-string") || el.querySelector("span") || el;
+  const target = el.querySelector("span.yt-core-attributed-string") || el.querySelector("yt-formatted-string") || el;
   const isShowingOriginal = icon.classList.contains("showing-original");
 
   if (isShowingOriginal) {
