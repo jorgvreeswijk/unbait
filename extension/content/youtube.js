@@ -419,22 +419,35 @@ function replaceThumbnail(videoId, container) {
 // ---------------------------------------------------------------------------
 
 function renderReplacedHeadline(el, newTitle, originalText) {
-  // YouTube 2026 layout: h3 > a.yt-lockup-metadata-view-model__title > span.yt-core-attributed-string
-  // Target the innermost text element to avoid YouTube's framework overriding changes.
+  // YouTube's data-binding framework re-renders text content, overriding our changes.
+  // Solution: clone the text element to break YouTube's binding, then set our text.
   const textTarget =
     el.querySelector("span.yt-core-attributed-string") ||
     el.querySelector("yt-formatted-string") ||
     el.querySelector("span") ||
     el;
 
-  // Clear all child spans (YouTube splits text into multiple spans)
-  textTarget.textContent = newTitle;
+  // Clone the element to break YouTube's data binding
+  const clone = textTarget.cloneNode(false); // shallow clone — no children
+  clone.textContent = newTitle;
+  if (textTarget.parentNode) {
+    textTarget.parentNode.replaceChild(clone, textTarget);
+  }
 
-  // Also update the parent <a> aria-label which YouTube uses for accessibility
+  // Also update the parent <a> aria-label
   const titleLink = el.querySelector("a.yt-lockup-metadata-view-model__title");
   if (titleLink) {
     titleLink.setAttribute("aria-label", newTitle);
+    // Clone the link too to prevent YouTube from restoring via its binding
+    const linkClone = titleLink.cloneNode(true);
+    // Update text in the cloned link
+    const innerSpan = linkClone.querySelector("span.yt-core-attributed-string, span");
+    if (innerSpan) innerSpan.textContent = newTitle;
+    if (titleLink.parentNode) {
+      titleLink.parentNode.replaceChild(linkClone, titleLink);
+    }
   }
+
   el.classList.add("unbait-replaced");
   el.title = `Original: ${originalText}`;
   el.dataset.unbaitOriginal = originalText;
