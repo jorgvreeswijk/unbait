@@ -546,9 +546,10 @@ async function callOpenAI(apiKey, headlines, tabId) {
  * Splits headlines into small batches to stay within free tier token limits.
  */
 async function callGemini(apiKey, headlines, tabId) {
-  const BATCH_SIZE = 15; // Larger batches — fewer API calls to stay within free tier
-  const BATCH_DELAY = 4500; // 4.5s between batches (free tier = 15 req/min)
-  const MAX_RETRIES = 3;
+  // Gemini free tier: only 5 RPM and 20 RPD! Send everything in 1 request.
+  const BATCH_SIZE = 60; // All headlines in one batch (free tier has only 20 req/day)
+  const BATCH_DELAY = 15000; // 15s between batches if we ever need more than 1
+  const MAX_RETRIES = 2;
   const allResults = [];
   console.log(`[Unbait] Gemini: processing ${headlines.length} headlines in ${Math.ceil(headlines.length / BATCH_SIZE)} batches`);
 
@@ -593,7 +594,10 @@ async function callGemini(apiKey, headlines, tabId) {
           }
           if (response.status === 429) {
             const errMsg = err.error?.message || "unknown";
-            console.warn(`[Unbait] Gemini rate limit exceeded after retries: "${errMsg}". Skipping batch.`);
+            console.warn(`[Unbait] Gemini rate limit exceeded: "${errMsg}"`);
+            if (errMsg.includes("per_day") || errMsg.includes("RPD") || errMsg.includes("limit: 0")) {
+              return { error: "Gemini daily limit reached (20 requests/day on free tier). Try again tomorrow or switch to Anthropic/OpenAI." };
+            }
             batchDone = true;
             continue;
           }
