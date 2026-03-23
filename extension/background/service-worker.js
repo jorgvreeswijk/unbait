@@ -1,10 +1,36 @@
+// Track active job status per tab
+const _tabStatus = new Map();
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Verify sender is from our own extension or a valid tab
   if (sender.id !== chrome.runtime.id) return;
 
   if (message.action === "rewrite-headlines") {
-    handleRewrite(message.headlines, sender.tab?.id).then(sendResponse);
+    const tabId = sender.tab?.id;
+    _tabStatus.set(tabId, { state: "working", text: "Scanning headlines..." });
+    handleRewrite(message.headlines, tabId).then((result) => {
+      if (result && result.error) {
+        _tabStatus.set(tabId, { state: "error", text: result.error });
+      } else if (result && result.results) {
+        _tabStatus.set(tabId, {
+          state: "done",
+          text: "Done!",
+          found: message.headlines.length,
+          count: result.results.filter((r) => r.newTitle).length,
+        });
+      } else {
+        _tabStatus.delete(tabId);
+      }
+      sendResponse(result);
+    });
     return true; // async response
+  }
+
+  if (message.action === "get-tab-status") {
+    const tabId = message.tabId;
+    const status = _tabStatus.get(tabId) || null;
+    sendResponse(status);
+    return;
   }
 });
 
@@ -77,9 +103,11 @@ async function handleRewrite(headlines, tabId) {
   }
 
   // Fast partial fetch for context
+  _tabStatus.set(tabId, { state: "working", text: "Fetching article context..." });
   const enriched = await enrichWithContext(headlines);
 
   // Call the selected provider
+  _tabStatus.set(tabId, { state: "working", text: `Rewriting with ${provider}...` });
   console.log(`[Unbait] Calling ${provider} with ${enriched.length} headlines`);
   const result = await callProvider(provider, apiKey, enriched, tabId);
   console.log(`[Unbait] ${provider} returned:`, result.error || `${result.results?.length || 0} results`);

@@ -111,11 +111,39 @@ chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiK
     }
   }
 
-  // Check if page already has Unbait results
+  // Check if there's an active job or results for this tab
   if (tab?.id) {
     try {
+      // First check service worker for active/completed job status
+      const tabStatus = await chrome.runtime.sendMessage({
+        action: "get-tab-status",
+        tabId: tab.id,
+      });
+
+      if (tabStatus) {
+        if (tabStatus.state === "working") {
+          btnDeclickbait.disabled = true;
+          btnDeclickbait.classList.add("processing");
+          btnDeclickbait.textContent = "Working...";
+          statusEl.textContent = tabStatus.text || "Processing...";
+          statusEl.className = "status-msg";
+        } else if (tabStatus.state === "done") {
+          statusEl.textContent = "Done!";
+          statusEl.className = "status-msg success";
+          if (tabStatus.found) {
+            statsEl.classList.remove("hidden");
+            statFound.textContent = tabStatus.found;
+            statReplaced.textContent = tabStatus.count || 0;
+          }
+        } else if (tabStatus.state === "error") {
+          statusEl.textContent = tabStatus.text;
+          statusEl.className = "status-msg error";
+        }
+      }
+
+      // Also check content script for stats (e.g. from cached results)
       const stats = await chrome.tabs.sendMessage(tab.id, { action: "get-stats" });
-      if (stats && stats.count > 0) {
+      if (stats && stats.count > 0 && !tabStatus) {
         statsEl.classList.remove("hidden");
         statFound.textContent = stats.found || stats.count;
         statReplaced.textContent = stats.count;
