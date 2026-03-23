@@ -50,7 +50,7 @@ const CONFIG = {
   GEMINI_RETRY_BASE_MS: 10000,
   CLAUDE_MAX_TOKENS: 4096,
   OPENAI_MAX_TOKENS: 4096,
-  GEMINI_MAX_TOKENS: 2048,
+  GEMINI_MAX_TOKENS: 8192,
   AUTO_TRIGGER_DELAY_MS: 500,
 };
 
@@ -523,12 +523,30 @@ function tryParsePartialResults(text, alreadySent) {
  * Parse a non-streaming JSON response and send results to content script.
  */
 function parseAndSendResults(text, tabId) {
-  const jsonStr = text
+  let jsonStr = text
     .replace(/```json\n?/g, "")
     .replace(/```\n?/g, "")
     .trim();
 
-  const parsed = JSON.parse(jsonStr);
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch {
+    // Try to salvage truncated JSON: find last complete object and close the array
+    const lastComplete = jsonStr.lastIndexOf("}");
+    if (lastComplete > 0) {
+      const salvaged = jsonStr.substring(0, lastComplete + 1) + "]";
+      try {
+        parsed = JSON.parse(salvaged);
+        console.log(`[Unbait] Salvaged truncated JSON (${parsed.length} results)`);
+      } catch {
+        throw new Error("Unexpected end of JSON input");
+      }
+    } else {
+      throw new Error("Unexpected end of JSON input");
+    }
+  }
+
   const validated = validateResults(parsed);
 
   for (const result of validated) {
