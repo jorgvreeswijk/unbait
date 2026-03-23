@@ -40,6 +40,13 @@ providerSelect.addEventListener("change", () => {
   const provider = providerSelect.value;
   updateProviderUI(provider);
   chrome.storage.local.set({ provider });
+
+  // Auto-open info panel when switching providers so user sees the right instructions
+  if (infoPanel.classList.contains("hidden")) {
+    infoPanel.classList.remove("hidden");
+    btnInfo.classList.add("active");
+  }
+
   // Load key for this provider if we have one
   chrome.storage.local.get(`apiKey_${provider}`, (data) => {
     const key = data[`apiKey_${provider}`] || "";
