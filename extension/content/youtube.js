@@ -419,7 +419,17 @@ function replaceThumbnail(videoId, container) {
 // ---------------------------------------------------------------------------
 
 function renderReplacedHeadline(el, newTitle, originalText) {
-  el.textContent = newTitle;
+  // YouTube uses custom elements like <yt-formatted-string> inside h3.
+  // Setting textContent on h3 destroys the internal structure and YouTube
+  // may re-render it. Instead, find the deepest text-bearing element.
+  const formattedString = el.querySelector("yt-formatted-string") || el.querySelector("span") || el;
+  formattedString.textContent = newTitle;
+  // Also set on parent to prevent YouTube from re-rendering from data
+  if (formattedString !== el) {
+    formattedString.setAttribute("title", newTitle);
+    // Remove aria-label that YouTube may use to restore text
+    formattedString.removeAttribute("aria-label");
+  }
   el.classList.add("unbait-replaced");
   el.title = `Original: ${originalText}`;
   el.dataset.unbaitOriginal = originalText;
@@ -482,15 +492,16 @@ function applyStreamResult(result) {
 }
 
 function toggleTitle(el, icon) {
+  const target = el.querySelector("yt-formatted-string") || el.querySelector("span") || el;
   const isShowingOriginal = icon.classList.contains("showing-original");
 
   if (isShowingOriginal) {
-    el.textContent = el.dataset.unbaitNew;
+    target.textContent = el.dataset.unbaitNew;
     el.title = `Original: ${el.dataset.unbaitOriginal}`;
     icon.title = "Click to show original";
     icon.classList.remove("showing-original");
   } else {
-    el.textContent = el.dataset.unbaitOriginal;
+    target.textContent = el.dataset.unbaitOriginal;
     el.title = `Unbait: ${el.dataset.unbaitNew}`;
     icon.title = "Click to show Unbait title";
     icon.classList.add("showing-original");
