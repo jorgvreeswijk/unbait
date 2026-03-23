@@ -379,6 +379,68 @@
       text-decoration: none;
     }
 
+    /* Provider tabs */
+    .provider-tabs {
+      display: flex;
+      gap: 0;
+      margin: 1rem 0 0;
+      border-bottom: 2px solid var(--gray-100);
+    }
+
+    .provider-tab {
+      padding: 0.5rem 1.25rem;
+      border: none;
+      background: none;
+      color: var(--gray-400);
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      transition: color 0.2s, border-color 0.2s;
+    }
+
+    .provider-tab:hover {
+      color: var(--gray-600);
+    }
+
+    .provider-tab.active {
+      color: var(--teal);
+      border-bottom-color: var(--teal);
+    }
+
+    .provider-instructions {
+      padding: 1.25rem 0 0.5rem;
+    }
+
+    .provider-instructions p {
+      font-size: 0.95rem;
+      color: var(--gray-500);
+      margin-bottom: 0.75rem;
+    }
+
+    .provider-instructions ol {
+      padding-left: 1.25rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .provider-instructions li {
+      font-size: 0.95rem;
+      color: var(--gray-500);
+      margin-bottom: 0.5rem;
+    }
+
+    .provider-instructions a {
+      color: var(--teal);
+    }
+
+    .provider-tip {
+      background: var(--teal-light);
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      font-size: 0.9rem !important;
+    }
+
     /* Responsive */
     @media (max-width: 640px) {
       .hero h1 { font-size: 2.25rem; }
@@ -543,12 +605,44 @@
       <p>Download from <a href="https://github.com/jorgvreeswijk/unbait/releases">GitHub Releases</a> and load it in Chrome (Settings &rarr; Extensions &rarr; Load unpacked) or Safari.</p>
 
       <h3>2. Get an API key</h3>
-      <p>Pick your preferred AI provider: <a href="https://console.anthropic.com">Anthropic</a> (Claude), <a href="https://platform.openai.com">OpenAI</a> (GPT), or <a href="https://aistudio.google.com/apikey">Google Gemini</a> (free tier available). Create an account, set up billing, and generate an API key.</p>
+      <p>Choose your provider to see setup instructions:</p>
 
-      <h3>3. Set a spending limit</h3>
-      <p>Most providers let you set a monthly spending limit. For Anthropic, create a <a href="https://console.anthropic.com/settings/workspaces">workspace</a> and set limits. Google Gemini has a generous free tier.</p>
+      <div class="provider-tabs">
+        <button class="provider-tab active" data-provider="anthropic">Anthropic</button>
+        <button class="provider-tab" data-provider="openai">OpenAI</button>
+        <button class="provider-tab" data-provider="gemini">Gemini</button>
+      </div>
 
-      <h3>4. Paste your key and go</h3>
+      <div class="provider-instructions" id="instructions-anthropic">
+        <p><strong>Model:</strong> Claude Haiku 4.5 &middot; <strong>Cost:</strong> &lt; $0.01 per page</p>
+        <ol>
+          <li>Go to <a href="https://console.anthropic.com">console.anthropic.com</a> and create a developer account (or sign in with your Claude account).</li>
+          <li>Go to <em>Settings &gt; Billing</em>, add a payment method and deposit at least $5. Note: API billing is separate from a Claude Pro subscription.</li>
+          <li>Go to <a href="https://console.anthropic.com/settings/keys">API Keys</a>, click <em>Create Key</em> and copy it immediately.</li>
+        </ol>
+        <p class="provider-tip"><strong>Tip:</strong> Create a <a href="https://console.anthropic.com/settings/workspaces">workspace</a> and set a monthly spending limit under <em>Limits</em>.</p>
+      </div>
+
+      <div class="provider-instructions" id="instructions-openai" style="display:none">
+        <p><strong>Model:</strong> GPT-4o mini &middot; <strong>Cost:</strong> &lt; $0.01 per page</p>
+        <ol>
+          <li>Go to <a href="https://platform.openai.com">platform.openai.com</a> and sign up or log in.</li>
+          <li>Go to <em>Settings &gt; Billing</em>, add a payment method and deposit at least $5.</li>
+          <li>Go to <a href="https://platform.openai.com/api-keys">API Keys</a>, click <em>Create new secret key</em> and copy it immediately.</li>
+        </ol>
+        <p class="provider-tip"><strong>Tip:</strong> Set a monthly budget under <em>Settings &gt; Limits</em> to cap your spending.</p>
+      </div>
+
+      <div class="provider-instructions" id="instructions-gemini" style="display:none">
+        <p><strong>Model:</strong> Gemini 2.0 Flash &middot; <strong>Cost:</strong> Free tier available (15 req/min)</p>
+        <ol>
+          <li>Go to <a href="https://aistudio.google.com/apikey">aistudio.google.com/apikey</a> and create a new API key.</li>
+          <li>That's it! Gemini has a generous free tier, no billing setup required for light usage.</li>
+        </ol>
+        <p class="provider-tip"><strong>Tip:</strong> The free tier is enough for casual browsing. For heavy use, billing activates automatically.</p>
+      </div>
+
+      <h3>3. Paste your key and go</h3>
       <p>Click the Unbait icon in your browser toolbar, select your provider, paste your API key, and click "Unbait!" or enable Always On for your favorite sites.</p>
     </div>
   </section>
@@ -557,6 +651,18 @@
     <p>Unbait is open-source and free. Built by <a href="https://github.com/jorgvreeswijk">Jorg Vreeswijk</a>.</p>
     <p style="margin-top: 0.5rem;">Provided as-is, without warranty. The author is not responsible for any costs or damages resulting from use.</p>
   </footer>
+
+  <script>
+    document.querySelectorAll('.provider-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.provider-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const provider = tab.dataset.provider;
+        document.querySelectorAll('.provider-instructions').forEach(el => el.style.display = 'none');
+        document.getElementById('instructions-' + provider).style.display = 'block';
+      });
+    });
+  </script>
 
 </body>
 </html>
