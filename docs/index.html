@@ -309,15 +309,26 @@
 
     /* How it works */
     .steps {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 2rem;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 0;
       margin-top: 2rem;
     }
 
     .step {
       text-align: center;
-      padding: 1.5rem;
+      padding: 1rem;
+      flex: 1;
+      max-width: 220px;
+    }
+
+    .step-arrow {
+      display: flex;
+      align-items: center;
+      padding-top: 1.75rem;
+      color: var(--gray-400);
+      flex-shrink: 0;
     }
 
     .step-number {
@@ -452,6 +463,9 @@
       .nav-links { gap: 1rem; }
       .demo-row { flex-direction: column; gap: 0.5rem; }
       .demo-before, .demo-after { flex: none; }
+      .steps { flex-direction: column; align-items: center; }
+      .step { max-width: 100%; }
+      .step-arrow { transform: rotate(90deg); padding: 0; }
     }
   </style>
 </head>
@@ -526,15 +540,29 @@
         <h3>Scan the page</h3>
         <p>Unbait finds all article headlines on the page you're viewing.</p>
       </div>
+      <div class="step-arrow">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+      </div>
       <div class="step">
         <div class="step-number">2</div>
         <h3>Read the article</h3>
         <p>For each headline, it briefly fetches the article to understand the actual content.</p>
       </div>
+      <div class="step-arrow">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+      </div>
       <div class="step">
         <div class="step-number">3</div>
         <h3>Your AI rewrites</h3>
-        <p>Your own AI rewrites vague or misleading headlines into clear, specific titles. Good headlines stay unchanged.</p>
+        <p>Vague or misleading headlines are rewritten into clear, specific titles. Good ones stay untouched.</p>
+      </div>
+      <div class="step-arrow">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+      </div>
+      <div class="step">
+        <div class="step-number">4</div>
+        <h3>You decide</h3>
+        <p>Browse with titles that tell you what articles are actually about. Click what matters, skip what doesn't.</p>
       </div>
     </div>
   </section>
