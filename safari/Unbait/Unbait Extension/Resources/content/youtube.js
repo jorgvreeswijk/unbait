@@ -453,6 +453,10 @@ function renderReplacedHeadline(el, newTitle, originalText) {
   el.dataset.unbaitOriginal = originalText;
   el.dataset.unbaitNew = newTitle;
 
+  // Mark the renderer container so MutationObserver skips it
+  const renderer = el.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer");
+  if (renderer) renderer.dataset.unbaitProcessed = "true";
+
   const existingIcon = el.parentNode?.querySelector(".unbait-icon");
   if (existingIcon) existingIcon.remove();
 
@@ -534,8 +538,8 @@ function categorizeHeadlines(titles, cache) {
   const uncachedData = [];
   let cachedCount = 0;
 
-  titles.forEach((item, index) => {
-    const id = `yt-title-${index}`;
+  titles.forEach((item) => {
+    const id = `yt-${item.videoId}`;
     _ytElements.set(id, item.element);
     item.element.dataset.unbaitOriginal = item.text;
     item.element.dataset.unbaitVideoId = item.videoId;
@@ -756,23 +760,26 @@ let _ytObserverDebounce = null;
 function startObserving() {
   if (_ytObserver) return;
 
-  _ytObserver = new MutationObserver(() => {
+  _ytObserver = new MutationObserver((mutations) => {
     if (_ytObserverDebounce) clearTimeout(_ytObserverDebounce);
     _ytObserverDebounce = setTimeout(() => {
-      // Only auto-process if not already running
       if (_ytIsProcessing) return;
 
-      // Check if there are new unprocessed titles
+      // Only process if genuinely new video renderers appeared
+      // (not our own DOM changes or YouTube re-rendering existing ones)
       const titles = findYouTubeTitles();
-      const hasNew = titles.some(
-        (t) => !t.element.classList.contains("unbait-replaced") &&
-               !t.element.classList.contains("unbait-loading")
-      );
-      if (hasNew) {
-        console.debug("[Unbait YT] New titles detected, auto-processing...");
-        _ytIsProcessing = true;
-        processYouTubeTitles()
-          .then(() => {
+      const newTitles = titles.filter((t) => {
+        // Skip if we already processed this video ID
+        const vid = t.videoId;
+        return vid && !_ytApplied.has(`yt-${vid}`) && !_ytElements.has(`yt-${vid}`);
+      });
+
+      if (newTitles.length === 0) return;
+
+      console.debug(`[Unbait YT] ${newTitles.length} new titles from scroll`);
+      _ytIsProcessing = true;
+      processYouTubeTitles()
+        .then(() => {
             _ytIsProcessing = false;
           })
           .catch(() => {
