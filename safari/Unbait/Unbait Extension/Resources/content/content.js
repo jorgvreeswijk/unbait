@@ -13,36 +13,192 @@ if (!window.__unbaitLoaded) {
   });
 }
 
+const CONFIG = {
+  CACHE_MAX_AGE_MS: 7 * 24 * 60 * 60 * 1000,
+  CACHE_MAX_ENTRIES: 500,
+  API_TIMEOUT_MS: 120000,
+  MIN_HEADLINE_LENGTH: 15,
+  MAX_HEADLINE_LENGTH: 300,
+  MIN_LARGE_LINK_LENGTH: 30,
+  MAX_LARGE_LINK_LENGTH: 200,
+  MIN_FONT_SIZE_PX: 16,
+  MIN_LINK_WIDTH_PX: 100,
+  MIN_LINK_HEIGHT_PX: 20,
+  MIN_PATH_LENGTH: 5,
+};
+
 // Global maps to track elements and applied results
 const _unbaitElements = new Map();
 const _unbaitApplied = new Set();
 
-// Cache: article URL → { newTitle, timestamp }
-const CACHE_KEY = "unbait_cache";
-const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
+// Serialized cache write queue
+let _cacheWriteQueue = Promise.resolve();
 
-async function getCache() {
-  const data = await chrome.storage.local.get(CACHE_KEY);
-  return data[CACHE_KEY] || {};
+function cacheKeyForProvider(provider) {
+  return `unbait_cache_${provider || "anthropic"}`;
 }
 
-async function setCacheEntries(entries) {
-  const cache = await getCache();
-  const now = Date.now();
+async function getCurrentProvider() {
+  const data = await chrome.storage.local.get("provider");
+  return data.provider || "anthropic";
+}
 
-  // Add new entries
-  for (const [url, newTitle] of Object.entries(entries)) {
-    cache[url] = { newTitle, ts: now };
-  }
+async function getCache(provider) {
+  if (!provider) provider = await getCurrentProvider();
+  const key = cacheKeyForProvider(provider);
+  const data = await chrome.storage.local.get(key);
+  return data[key] || {};
+}
 
-  // Prune expired entries
-  for (const [url, entry] of Object.entries(cache)) {
-    if (now - entry.ts > CACHE_MAX_AGE) {
-      delete cache[url];
+async function setCacheEntries(entries, provider) {
+  _cacheWriteQueue = _cacheWriteQueue.then(async () => {
+    if (!provider) provider = await getCurrentProvider();
+    const key = cacheKeyForProvider(provider);
+    const cache = await getCache(provider);
+    const now = Date.now();
+
+    // Add new entries
+    for (const [url, newTitle] of Object.entries(entries)) {
+      cache[url] = { newTitle, ts: now };
+    }
+
+    // Prune expired entries
+    for (const [url, entry] of Object.entries(cache)) {
+      if (now - entry.ts > CONFIG.CACHE_MAX_AGE_MS) {
+        delete cache[url];
+      }
+    }
+
+    // Cap cache size
+    const cacheEntries = Object.entries(cache);
+    if (cacheEntries.length > CONFIG.CACHE_MAX_ENTRIES) {
+      cacheEntries.sort((a, b) => a[1].ts - b[1].ts);
+      cacheEntries.slice(0, cacheEntries.length - CONFIG.CACHE_MAX_ENTRIES).forEach(([url]) => delete cache[url]);
+    }
+
+    await chrome.storage.local.set({ [key]: cache });
+  });
+}
+
+/**
+ * Load cache for the current provider, migrating old format if needed.
+ */
+async function loadCache(provider) {
+  const cache = await getCache(provider);
+
+  // Migrate old global cache to anthropic if it exists
+  const oldData = await chrome.storage.local.get("unbait_cache");
+  if (oldData.unbait_cache && Object.keys(oldData.unbait_cache).length > 0) {
+    const oldCache = oldData.unbait_cache;
+    await setCacheEntries(
+      Object.fromEntries(Object.entries(oldCache).map(([url, entry]) => [url, entry.newTitle])),
+      "anthropic"
+    );
+    await chrome.storage.local.remove("unbait_cache");
+    // Reload cache if we're on anthropic
+    if (provider === "anthropic") {
+      Object.assign(cache, (await getCache(provider)));
     }
   }
 
-  await chrome.storage.local.set({ [CACHE_KEY]: cache });
+  return cache;
+}
+
+/**
+ * Split headlines into cached and uncached, apply cached results immediately.
+ */
+function categorizeHeadlines(headlines, cache) {
+  const uncachedData = [];
+  let cachedCount = 0;
+
+  headlines.forEach((item, index) => {
+    const id = `headline-${index}`;
+    _unbaitElements.set(id, item.element);
+    item.element.dataset.unbaitOriginal = item.text;
+
+    // Check cache by article URL
+    const cached = cache[item.url];
+    if (cached && Date.now() - cached.ts < CONFIG.CACHE_MAX_AGE_MS) {
+      _unbaitApplied.add(id);
+      if (cached.newTitle) {
+        renderReplacedHeadline(item.element, cached.newTitle, item.text);
+        cachedCount++;
+      }
+    } else {
+      item.element.classList.add("unbait-loading");
+      uncachedData.push({ id, text: item.text, url: item.url });
+    }
+  });
+
+  return { uncachedData, cachedCount };
+}
+
+/**
+ * Send uncached headlines to service worker, handle timeout and responses.
+ */
+async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFound) {
+  try {
+    console.log(`[Unbait] Sending ${uncachedData.length} headlines to service worker...`);
+
+    let response;
+    try {
+      response = await Promise.race([
+        chrome.runtime.sendMessage({
+          action: "rewrite-headlines",
+          headlines: uncachedData,
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), CONFIG.API_TIMEOUT_MS)),
+      ]);
+    } catch (e) {
+      if (e.message === "timeout") {
+        console.warn("[Unbait] Response timed out, but stream-results may have been applied");
+        _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
+        return { success: true, found: totalFound, count: _unbaitApplied.size };
+      }
+      throw e;
+    }
+
+    console.log("[Unbait] Service worker response:", response);
+
+    if (!response) {
+      _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
+      return { success: true, found: totalFound, count: _unbaitApplied.size };
+    }
+
+    if (response.error) {
+      _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
+      return { error: response.error };
+    }
+
+    // For non-streaming fallback: apply all results at once
+    const newCacheEntries = {};
+
+    if (response.results) {
+      for (const result of response.results) {
+        applyResult(result);
+        const headline = uncachedData.find((h) => h.id === result.id);
+        if (headline) {
+          newCacheEntries[headline.url] = result.newTitle;
+        }
+      }
+    }
+
+    if (Object.keys(newCacheEntries).length > 0) {
+      setCacheEntries(newCacheEntries, provider);
+    }
+
+    _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
+
+    let totalReplaced = 0;
+    _unbaitElements.forEach((el) => {
+      if (el.classList.contains("unbait-replaced")) totalReplaced++;
+    });
+
+    return { success: true, found: totalFound, count: totalReplaced };
+  } catch (err) {
+    _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
+    return { error: `Fout: ${err.message}` };
+  }
 }
 
 async function processHeadlines() {
@@ -55,86 +211,21 @@ async function processHeadlines() {
   _unbaitElements.clear();
   _unbaitApplied.clear();
 
-  // Load cache
-  const cache = await getCache();
+  const provider = await getCurrentProvider();
+  const cache = await loadCache(provider);
+  const { uncachedData, cachedCount } = categorizeHeadlines(headlines, cache);
 
-  const headlineData = [];
-  const uncachedData = [];
-  let cachedCount = 0;
-
-  headlines.forEach((item, index) => {
-    const id = `headline-${index}`;
-    headlineData.push({ id, text: item.text, url: item.url });
-    _unbaitElements.set(id, item.element);
-    item.element.dataset.unbaitOriginal = item.text;
-
-    // Check cache by article URL
-    const cached = cache[item.url];
-    if (cached && Date.now() - cached.ts < CACHE_MAX_AGE) {
-      // Apply cached result immediately (no loading state needed)
-      const result = { id, newTitle: cached.newTitle };
-      _unbaitApplied.add(id);
-      if (cached.newTitle) {
-        applyCachedResult(item.element, cached.newTitle, item.text);
-        cachedCount++;
-      }
-    } else {
-      // Needs API call — show loading state
-      item.element.classList.add("unbait-loading");
-      uncachedData.push({ id, text: item.text, url: item.url });
-    }
-  });
-
-  // If everything was cached, we're done
   if (uncachedData.length === 0) {
     return { success: true, found: headlines.length, count: cachedCount, cached: true };
   }
 
-  try {
-    const response = await chrome.runtime.sendMessage({
-      action: "rewrite-headlines",
-      headlines: uncachedData,
-    });
-
-    if (response.error) {
-      _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
-      return { error: response.error };
-    }
-
-    // For non-streaming fallback: apply all results at once
-    let replacedCount = cachedCount;
-    const newCacheEntries = {};
-
-    if (response.results) {
-      for (const result of response.results) {
-        if (applyResult(result)) replacedCount++;
-        // Cache the result by article URL
-        const headline = uncachedData.find((h) => h.id === result.id);
-        if (headline) {
-          newCacheEntries[headline.url] = result.newTitle;
-        }
-      }
-    }
-
-    // Save new results to cache
-    if (Object.keys(newCacheEntries).length > 0) {
-      setCacheEntries(newCacheEntries);
-    }
-
-    // Clean up any remaining loading states
-    _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
-
-    return { success: true, found: headlines.length, count: replacedCount };
-  } catch (err) {
-    _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
-    return { error: `Fout: ${err.message}` };
-  }
+  return fetchAndApplyResults(uncachedData, provider, cachedCount, headlines.length);
 }
 
 /**
- * Apply a cached result (no loading state, immediate).
+ * Shared rendering logic for replacing a headline with a new title.
  */
-function applyCachedResult(el, newTitle, originalText) {
+function renderReplacedHeadline(el, newTitle, originalText) {
   el.textContent = newTitle;
   el.classList.add("unbait-replaced");
   el.title = `Origineel: ${originalText}`;
@@ -147,10 +238,19 @@ function applyCachedResult(el, newTitle, originalText) {
   const icon = document.createElement("span");
   icon.className = "unbait-icon";
   icon.title = "Klik om origineel te tonen";
+  icon.setAttribute("role", "button");
+  icon.setAttribute("tabindex", "0");
+  icon.setAttribute("aria-label", "Toggle original headline");
   icon.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
     toggleTitle(el, icon);
+  });
+  icon.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      icon.click();
+    }
   });
   el.parentNode.insertBefore(icon, el.nextSibling);
 }
@@ -173,25 +273,7 @@ function applyResult(result) {
   if (!result.newTitle) return false;
 
   const originalText = el.dataset.unbaitOriginal || el.textContent;
-  el.textContent = result.newTitle;
-  el.classList.add("unbait-replaced");
-  el.title = `Origineel: ${originalText}`;
-  el.dataset.unbaitOriginal = originalText;
-  el.dataset.unbaitNew = result.newTitle;
-
-  // Add clickable icon (remove any existing one first to prevent duplicates)
-  const existingIcon = el.parentNode?.querySelector(".unbait-icon");
-  if (existingIcon) existingIcon.remove();
-
-  const icon = document.createElement("span");
-  icon.className = "unbait-icon";
-  icon.title = "Klik om origineel te tonen";
-  icon.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    toggleTitle(el, icon);
-  });
-  el.parentNode.insertBefore(icon, el.nextSibling);
+  renderReplacedHeadline(el, result.newTitle, originalText);
 
   return true;
 }
@@ -292,8 +374,8 @@ function findHeadlines() {
 
     const text = anchor.textContent.trim();
     if (
-      text.length >= 30 &&
-      text.length <= 200 &&
+      text.length >= CONFIG.MIN_LARGE_LINK_LENGTH &&
+      text.length <= CONFIG.MAX_LARGE_LINK_LENGTH &&
       !anchor.querySelector("a") &&
       !isNavigationElement(anchor) &&
       looksLikeHeadlineLink(anchor)
@@ -307,11 +389,11 @@ function findHeadlines() {
 
 function addHeadline(found, seen, element, url) {
   const text = element.textContent.trim();
-  if (!text || text.length < 15 || seen.has(url)) return;
+  if (!text || text.length < CONFIG.MIN_HEADLINE_LENGTH || seen.has(url)) return;
 
   try {
     const parsedUrl = new URL(url);
-    if (parsedUrl.pathname === "/" || parsedUrl.pathname.length < 5) return;
+    if (parsedUrl.pathname === "/" || parsedUrl.pathname.length < CONFIG.MIN_PATH_LENGTH) return;
   } catch {
     return;
   }
@@ -322,7 +404,7 @@ function addHeadline(found, seen, element, url) {
 
 function isValidHeadline(element, anchor) {
   const text = element.textContent.trim();
-  if (text.length < 15 || text.length > 300) return false;
+  if (text.length < CONFIG.MIN_HEADLINE_LENGTH || text.length > CONFIG.MAX_HEADLINE_LENGTH) return false;
   if (!anchor.href || anchor.href === "#" || anchor.href === "javascript:void(0)")
     return false;
   if (isNavigationElement(element)) return false;
@@ -341,9 +423,9 @@ function isNavigationElement(el) {
 function looksLikeHeadlineLink(anchor) {
   const style = window.getComputedStyle(anchor);
   const fontSize = parseFloat(style.fontSize);
-  if (fontSize < 16) return false;
+  if (fontSize < CONFIG.MIN_FONT_SIZE_PX) return false;
   const rect = anchor.getBoundingClientRect();
-  if (rect.width < 100 || rect.height < 20) return false;
+  if (rect.width < CONFIG.MIN_LINK_WIDTH_PX || rect.height < CONFIG.MIN_LINK_HEIGHT_PX) return false;
   const parent = anchor.parentElement;
   if (!parent) return false;
   const parentClasses = (parent.className || "").toLowerCase();

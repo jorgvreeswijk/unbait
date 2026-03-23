@@ -4,6 +4,10 @@
   box-sizing: border-box;
 }
 
+.hidden {
+  display: none !important;
+}
+
 body {
   width: 320px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -101,6 +105,28 @@ label {
 .btn-info.active {
   background: #0d9488;
   color: #fff;
+}
+
+.provider-select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1.5px solid #ddd;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #333;
+  background: #fff;
+  cursor: pointer;
+  margin-bottom: 8px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.provider-select:focus {
+  border-color: #0d9488;
+}
+
+.label-key {
+  margin-top: 4px;
 }
 
 .info-panel {
@@ -356,6 +382,27 @@ hr {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: #374151;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.site-item .site-name:hover {
+  color: #0d9488;
+  text-decoration: underline;
+}
+
+.btn-clear-cache {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #9ca3af;
+  transition: color 0.15s;
+}
+
+.btn-clear-cache:hover {
+  color: #ef4444;
 }
 
 .site-item .btn-remove {

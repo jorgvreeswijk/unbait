@@ -11,42 +11,68 @@
 
     <div class="section">
       <div class="label-row">
-        <label for="api-key">Anthropic API Key</label>
-        <button id="btn-info" class="btn-info" title="How does this work?">i</button>
+        <label for="provider">AI Provider</label>
+        <button id="btn-info" class="btn-info" title="How does this work?" aria-label="Setup information">i</button>
       </div>
 
+      <select id="provider" class="provider-select">
+        <option value="anthropic">Anthropic (Claude)</option>
+        <option value="openai">OpenAI (GPT)</option>
+        <option value="gemini">Google (Gemini)</option>
+      </select>
+
       <div id="info-panel" class="info-panel hidden">
-        <h3>How to get an API key</h3>
+        <div id="info-anthropic">
+          <h3>Anthropic API key</h3>
+          <p><strong>1. Create an account</strong><br>
+          Go to <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>. Sign in with your existing Claude account or create a new developer account.</p>
+          <p><strong>2. Set up billing</strong><br>
+          The API uses prepaid credits (separate from a Claude Pro subscription). Go to <em>Settings &gt; Billing</em>, add a payment method and deposit at least $5.</p>
+          <p><strong>3. Create a key</strong><br>
+          Go to <a href="https://console.anthropic.com/settings/keys" target="_blank">API Keys</a>, click <em>Create Key</em>, give it a name and copy the key immediately. You'll only see it once.</p>
+          <div class="info-costs">
+            <p>Model: <strong>Claude Haiku 4.5</strong> (fast &amp; affordable). Cost: <strong>&lt; $0.01 per page</strong>.</p>
+          </div>
+        </div>
 
-        <p><strong>1. Create an account</strong><br>
-        Go to <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>. Sign in with your existing Claude account or create a new developer account.</p>
+        <div id="info-openai" class="hidden">
+          <h3>OpenAI API key</h3>
+          <p><strong>1. Create an account</strong><br>
+          Go to <a href="https://platform.openai.com" target="_blank">platform.openai.com</a> and sign up or log in.</p>
+          <p><strong>2. Set up billing</strong><br>
+          Go to <em>Settings &gt; Billing</em>, add a payment method and deposit at least $5.</p>
+          <p><strong>3. Create a key</strong><br>
+          Go to <a href="https://platform.openai.com/api-keys" target="_blank">API Keys</a>, click <em>Create new secret key</em> and copy it immediately.</p>
+          <div class="info-costs">
+            <p>Model: <strong>GPT-4o mini</strong> (fast &amp; affordable). Cost: <strong>&lt; $0.01 per page</strong>.</p>
+          </div>
+        </div>
 
-        <p><strong>2. Set up billing</strong><br>
-        The API uses prepaid credits (separate from a Claude Pro subscription). Go to <em>Settings &gt; Billing</em>, add a payment method and deposit at least $5.</p>
-
-        <p><strong>3. Create a key</strong><br>
-        Go to <a href="https://console.anthropic.com/settings/keys" target="_blank">API Keys</a>, click <em>Create Key</em>, give it a name and copy the key immediately. You'll only see it once.</p>
-
-        <div class="info-costs">
-          <h3>Model &amp; estimated cost</h3>
-          <p>Unbait uses <strong>Claude Haiku 4.5</strong>, the fastest and most affordable model. Estimated cost: <strong>&lt; $0.01 per page</strong> (~20 headlines).</p>
+        <div id="info-gemini" class="hidden">
+          <h3>Google Gemini API key</h3>
+          <p><strong>1. Get a key</strong><br>
+          Go to <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a> and create a new API key. The free tier allows ~20 pages/day.</p>
+          <div class="info-costs">
+            <p>Model: <strong>Gemini 2.0 Flash</strong>. Cost: <strong>Free but limited</strong> (20 pages/day, 5/min). For heavier use, enable billing in Google AI Studio.</p>
+          </div>
         </div>
       </div>
 
+      <label for="api-key" class="label-key">API Key</label>
       <div class="key-row">
         <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
-        <button id="btn-toggle-key" class="btn-icon" title="Show/hide key">
+        <button id="btn-toggle-key" class="btn-icon" title="Show/hide key" aria-label="Show or hide API key">
           <svg id="icon-eye" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>
           <svg id="icon-eye-off" class="hidden" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></svg>
         </button>
-        <button id="btn-save-key" class="btn-icon btn-save" title="Save key">
+        <button id="btn-save-key" class="btn-icon btn-save" title="Save key" aria-label="Save API key">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
         </button>
-        <button id="btn-delete-key" class="btn-icon btn-delete" title="Delete key" style="display:none">
+        <button id="btn-delete-key" class="btn-icon btn-delete" title="Delete key" aria-label="Delete API key" style="display:none">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
         </button>
       </div>
-      <div id="key-status" class="status-msg"></div>
+      <div id="key-status" class="status-msg" role="status" aria-live="polite"></div>
     </div>
 
     <hr>
@@ -55,7 +81,7 @@
       De-clickbait!
     </button>
 
-    <div id="status" class="status-msg"></div>
+    <div id="status" class="status-msg" role="status" aria-live="polite"></div>
 
     <div id="stats" class="stats hidden">
       <span id="stat-found">0</span> headlines found,
@@ -79,6 +105,11 @@
           <input type="text" id="add-site-input" placeholder="e.g. www.example.com">
           <button id="btn-add-site" class="btn-add">+</button>
         </div>
+        <hr style="margin: 8px 0; border: none; border-top: 1px solid #e5e7eb;">
+        <button id="btn-clear-cache" class="btn-link btn-clear-cache">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+          Clear title cache
+        </button>
       </div>
     </div>
 
@@ -101,8 +132,8 @@
 
       <div class="info-costs">
         <h3>Disclaimer</h3>
-        <p>Unbait is provided as-is, without warranty. The author is not responsible for any costs, data loss, or other damages resulting from its use. Your API key is stored locally on your device and sent directly to Anthropic over HTTPS.</p>
-        <p><strong>Tip:</strong> Create a <a href="https://console.anthropic.com/settings/workspaces" target="_blank">workspace</a> for Unbait and set a monthly spending limit under <a href="https://console.anthropic.com/settings/limits" target="_blank">Workspace &gt; Limits &gt; Spend limits</a>. Generate your API key inside that workspace to keep costs capped.</p>
+        <p>Unbait is provided as-is, without warranty. The author is not responsible for any costs, data loss, or other damages resulting from its use. Your API key is stored locally on your device and sent directly to your chosen provider over HTTPS.</p>
+        <p><strong>Tip:</strong> Set a monthly spending limit with your provider to avoid unexpected charges. For Anthropic: create a <a href="https://console.anthropic.com/settings/workspaces" target="_blank">workspace</a> and set limits under <a href="https://console.anthropic.com/settings/limits" target="_blank">Workspace &gt; Limits</a>.</p>
       </div>
     </div>
   </div>

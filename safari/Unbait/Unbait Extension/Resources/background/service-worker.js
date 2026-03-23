@@ -8,6 +8,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+const CONFIG = {
+  CONTEXT_CONCURRENCY: 10,
+  CONTEXT_TIMEOUT_MS: 6000,
+  CONTEXT_MAX_BYTES: 131072,
+  CONTEXT_MAX_CHARS: 800,
+  META_DESC_MAX_CHARS: 300,
+  JSONLD_MAX_CHARS: 600,
+  MIN_PARAGRAPH_LENGTH: 40,
+  PARAGRAPH_MAX_CHARS: 600,
+  MAX_TITLE_LENGTH: 80,
+  GEMINI_BATCH_SIZE: 60,
+  GEMINI_BATCH_DELAY_MS: 15000,
+  GEMINI_MAX_RETRIES: 2,
+  GEMINI_RETRY_BASE_MS: 10000,
+  CLAUDE_MAX_TOKENS: 4096,
+  OPENAI_MAX_TOKENS: 4096,
+  GEMINI_MAX_TOKENS: 2048,
+  AUTO_TRIGGER_DELAY_MS: 500,
+};
+
 // Always On: auto-trigger on page load for configured sites
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== "complete" || !tab.url) return;
@@ -34,8 +54,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
         });
         setTimeout(() => {
           chrome.tabs.sendMessage(tabId, { action: "de-clickbait" }).catch(() => {});
-        }, 500);
-      }).catch(() => {});
+        }, CONFIG.AUTO_TRIGGER_DELAY_MS);
+      }).catch((e) => console.debug("[Unbait] Auto-inject failed:", e.message));
     });
   } catch {
     // invalid URL, skip
@@ -43,46 +63,79 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 async function handleRewrite(headlines, tabId) {
-  const { apiKey } = await chrome.storage.local.get("apiKey");
+  const data = await chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini", "apiKey"]);
+  const provider = data.provider || "anthropic";
+
+  // Migrate old key format
+  let apiKey = data[`apiKey_${provider}`];
+  if (!apiKey && provider === "anthropic" && data.apiKey) {
+    apiKey = data.apiKey;
+  }
+
   if (!apiKey) {
     return { error: "No API key set. Open the Unbait popup to enter your key." };
   }
 
-  // Fast partial fetch for context (only og:description from <head>)
+  // Fast partial fetch for context
   const enriched = await enrichWithContext(headlines);
 
-  // Call Claude API with streaming for progressive results
-  return await callClaudeStreaming(apiKey, enriched, tabId);
+  // Call the selected provider
+  console.log(`[Unbait] Calling ${provider} with ${enriched.length} headlines`);
+  const result = await callProvider(provider, apiKey, enriched, tabId);
+  console.log(`[Unbait] ${provider} returned:`, result.error || `${result.results?.length || 0} results`);
+  return result;
+}
+
+async function callProvider(provider, apiKey, headlines, tabId) {
+  switch (provider) {
+    case "openai":
+      return await callOpenAI(apiKey, headlines, tabId);
+    case "gemini":
+      return await callGemini(apiKey, headlines, tabId);
+    case "anthropic":
+    default:
+      return await callClaudeStreaming(apiKey, headlines, tabId);
+  }
 }
 
 /**
- * Context fetching: read the first ~32KB of each page (enough for <head> + article body).
+ * Validate parsed results array, filtering out malformed entries.
+ */
+function validateResults(parsed) {
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter(r => r && typeof r.id === "string" && (r.newTitle === null || typeof r.newTitle === "string"));
+}
+
+/**
+ * Context fetching: read the first ~128KB of each page (enough for <head> + article body).
  * Extract meta description + first paragraphs for rich context.
  */
 async function enrichWithContext(headlines) {
-  const CONCURRENCY = 10;
-  const TIMEOUT = 6000;
-  const MAX_BYTES = 131072; // 128KB — enough to reach article body on heavy sites
   const results = [];
 
-  for (let i = 0; i < headlines.length; i += CONCURRENCY) {
-    const batch = headlines.slice(i, i + CONCURRENCY);
+  for (let i = 0; i < headlines.length; i += CONFIG.CONTEXT_CONCURRENCY) {
+    const batch = headlines.slice(i, i + CONFIG.CONTEXT_CONCURRENCY);
     const promises = batch.map(async (h) => {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT);
+        const timeoutId = setTimeout(() => controller.abort(), CONFIG.CONTEXT_TIMEOUT_MS);
         const resp = await fetch(h.url, { signal: controller.signal });
         clearTimeout(timeoutId);
 
         if (!resp.ok) return { ...h, context: "" };
 
-        // Read first ~32KB (enough for <head> + article body)
+        const contentType = resp.headers.get("content-type") || "";
+        if (!contentType.includes("text/html") && !contentType.includes("text/xml") && !contentType.includes("application/xhtml")) {
+          return { ...h, context: "" };
+        }
+
+        // Read first ~128KB (enough for <head> + article body)
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
         let html = "";
         let bytesRead = 0;
 
-        while (bytesRead < MAX_BYTES) {
+        while (bytesRead < CONFIG.CONTEXT_MAX_BYTES) {
           const { done, value } = await reader.read();
           if (done) break;
           html += decoder.decode(value, { stream: true });
@@ -134,7 +187,7 @@ function extractMetaDescription(html) {
     /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i
   );
 
-  return (ogMatch?.[1] || ogMatch2?.[1] || metaMatch?.[1] || metaMatch2?.[1] || "").substring(0, 300);
+  return (ogMatch?.[1] || ogMatch2?.[1] || metaMatch?.[1] || metaMatch2?.[1] || "").substring(0, CONFIG.META_DESC_MAX_CHARS);
 }
 
 /**
@@ -157,7 +210,7 @@ function extractJsonLdDescription(html) {
           const body = item.articleBody || "";
           const desc = item.description || "";
           const text = body.length > desc.length ? body : desc;
-          if (text) return decodeEntities(text).substring(0, 600);
+          if (text) return decodeEntities(text).substring(0, CONFIG.JSONLD_MAX_CHARS);
         }
       }
     } catch {
@@ -172,7 +225,7 @@ function extractJsonLdDescription(html) {
  * 1. JSON-LD structured data (most reliable, used by modern sites)
  * 2. Meta description (og:description)
  * 3. Article body <p> tags (fallback for traditional CMS sites)
- * Returns up to 800 characters of combined context.
+ * Returns up to CONFIG.CONTEXT_MAX_CHARS characters of combined context.
  */
 function extractContext(html) {
   // Strategy 1: JSON-LD (best source — structured, contains specific names)
@@ -204,9 +257,9 @@ function extractContext(html) {
   let totalLen = 0;
   const pRegex = /<p[^>]*>([\s\S]*?)<\/p>/gi;
   let m;
-  while ((m = pRegex.exec(region)) !== null && totalLen < 600) {
+  while ((m = pRegex.exec(region)) !== null && totalLen < CONFIG.PARAGRAPH_MAX_CHARS) {
     const text = decodeEntities(m[1].replace(/<[^>]+>/g, ""));
-    if (text.length < 40) continue;
+    if (text.length < CONFIG.MIN_PARAGRAPH_LENGTH) continue;
     paragraphs.push(text);
     totalLen += text.length;
   }
@@ -217,16 +270,15 @@ function extractContext(html) {
   const extra = metaDesc && metaDesc !== best ? metaDesc : "";
 
   if (best && extra) {
-    return `${best} | ${extra}`.substring(0, 800);
+    return `${best} | ${extra}`.substring(0, CONFIG.CONTEXT_MAX_CHARS);
   }
-  return (best || extra || "").substring(0, 800);
+  return (best || extra || "").substring(0, CONFIG.CONTEXT_MAX_CHARS);
 }
 
 /**
- * Call Claude API with streaming. Send each parsed result to the content script
- * progressively so headlines appear one by one.
+ * Build the shared prompt parts used by all providers.
  */
-async function callClaudeStreaming(apiKey, headlines, tabId) {
+function buildPrompts(headlines) {
   const headlineList = headlines
     .map((h) => {
       let line = `- id: "${h.id}" | kop: "${h.text}"`;
@@ -262,7 +314,7 @@ VOORBEELDEN:
   → null
 
 REGELS:
-- Maximaal 80 tekens
+- Maximaal ${CONFIG.MAX_TITLE_LENGTH} tekens
 - Behoud de taal van de originele kop
 - Geen meningen of editoriale toon
 - Retourneer ALLEEN valide JSON, geen andere tekst`;
@@ -274,50 +326,16 @@ ${headlineList}
 
 Format: [{"id": "headline-0", "newTitle": "..." of null}, ...]`;
 
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 4096,
-        stream: true,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }],
-      }),
-    });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      if (response.status === 401) {
-        return { error: "Ongeldige API key. Controleer je key in de instellingen." };
-      }
-      if (response.status === 429) {
-        return { error: "Rate limit bereikt. Probeer het over een minuut opnieuw." };
-      }
-      return {
-        error: `API fout (${response.status}): ${err.error?.message || "Onbekende fout"}`,
-      };
-    }
-
-    // Parse SSE stream and extract text progressively
-    const allResults = await parseStreamAndSendResults(response, tabId);
-    return { results: allResults };
-  } catch (err) {
-    return { error: `Fout: ${err.message}` };
-  }
+  return { systemPrompt, userPrompt };
 }
 
 /**
- * Parse the SSE stream from Anthropic API.
- * As complete JSON objects are detected, send them to the content script immediately.
+ * Shared SSE stream parser used by Claude and OpenAI.
+ * Reads SSE events, accumulates text via extractDelta, parses partial results
+ * and sends them to the content script progressively.
+ * Returns the full array of parsed results.
  */
-async function parseStreamAndSendResults(response, tabId) {
+async function readSSEStream(response, extractDelta, tabId) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let fullText = "";
@@ -329,7 +347,6 @@ async function parseStreamAndSendResults(response, tabId) {
     if (done) break;
 
     const chunk = decoder.decode(value, { stream: true });
-    // Parse SSE events
     for (const line of chunk.split("\n")) {
       if (!line.startsWith("data: ")) continue;
       const data = line.slice(6);
@@ -337,8 +354,9 @@ async function parseStreamAndSendResults(response, tabId) {
 
       try {
         const event = JSON.parse(data);
-        if (event.type === "content_block_delta" && event.delta?.text) {
-          fullText += event.delta.text;
+        const delta = extractDelta(event);
+        if (delta) {
+          fullText += delta;
 
           // Try to extract complete JSON objects as they appear
           const newResults = tryParsePartialResults(fullText, sentResults);
@@ -368,7 +386,8 @@ async function parseStreamAndSendResults(response, tabId) {
       .replace(/```\n?/g, "")
       .trim();
     const parsed = JSON.parse(jsonStr);
-    for (const result of parsed) {
+    const validated = validateResults(parsed);
+    for (const result of validated) {
       if (!sentResults.has(result.id)) {
         allResults.push(result);
       }
@@ -378,6 +397,52 @@ async function parseStreamAndSendResults(response, tabId) {
   }
 
   return allResults;
+}
+
+/**
+ * Call Claude API with streaming.
+ */
+async function callClaudeStreaming(apiKey, headlines, tabId) {
+  const { systemPrompt, userPrompt } = buildPrompts(headlines);
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: CONFIG.CLAUDE_MAX_TOKENS,
+        stream: true,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }],
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        return { error: "Ongeldige API key. Controleer je key in de instellingen." };
+      }
+      if (response.status === 429) {
+        return { error: "Rate limit bereikt. Probeer het over een minuut opnieuw." };
+      }
+      return {
+        error: `API fout (${response.status}): ${err.error?.message || "Onbekende fout"}`,
+      };
+    }
+
+    const extractDelta = (event) =>
+      event.type === "content_block_delta" ? event.delta?.text : null;
+    const allResults = await readSSEStream(response, extractDelta, tabId);
+    return { results: allResults };
+  } catch (err) {
+    return { error: `Fout: ${err.message}` };
+  }
 }
 
 /**
@@ -400,4 +465,187 @@ function tryParsePartialResults(text, alreadySent) {
   }
 
   return results;
+}
+
+/**
+ * Parse a non-streaming JSON response and send results to content script.
+ */
+function parseAndSendResults(text, tabId) {
+  const jsonStr = text
+    .replace(/```json\n?/g, "")
+    .replace(/```\n?/g, "")
+    .trim();
+
+  const parsed = JSON.parse(jsonStr);
+  const validated = validateResults(parsed);
+
+  for (const result of validated) {
+    if (tabId) {
+      chrome.tabs.sendMessage(tabId, {
+        action: "stream-result",
+        result,
+      }).catch(() => {});
+    }
+  }
+
+  return validated;
+}
+
+/**
+ * Call OpenAI API (GPT-4o mini) with streaming.
+ */
+async function callOpenAI(apiKey, headlines, tabId) {
+  const { systemPrompt, userPrompt } = buildPrompts(headlines);
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        stream: true,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.3,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      if (response.status === 401) return { error: "Invalid OpenAI API key." };
+      if (response.status === 429) return { error: "Rate limit reached. Try again in a minute." };
+      return { error: `OpenAI error (${response.status}): ${err.error?.message || "Unknown error"}` };
+    }
+
+    const extractDelta = (event) =>
+      event.choices?.[0]?.delta?.content || null;
+    const allResults = await readSSEStream(response, extractDelta, tabId);
+
+    if (allResults.length === 0) {
+      return { error: "Failed to parse OpenAI response." };
+    }
+
+    return { results: allResults };
+  } catch (err) {
+    return { error: `OpenAI error: ${err.message}` };
+  }
+}
+
+/**
+ * Make a single Gemini API request and return the result.
+ * Returns { ok, data, error, status }.
+ */
+async function callGeminiSingleRequest(apiKey, systemPrompt, userPrompt) {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ parts: [{ text: userPrompt }] }],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: CONFIG.GEMINI_MAX_TOKENS,
+          responseMimeType: "application/json",
+        },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    return { ok: false, data: null, error: err, status: response.status };
+  }
+
+  const data = await response.json();
+  return { ok: true, data, error: null, status: response.status };
+}
+
+/**
+ * Call Google Gemini API (Gemini 2.0 Flash).
+ * Splits headlines into small batches to stay within free tier token limits.
+ */
+async function callGemini(apiKey, headlines, tabId) {
+  const allResults = [];
+  console.log(`[Unbait] Gemini: processing ${headlines.length} headlines in ${Math.ceil(headlines.length / CONFIG.GEMINI_BATCH_SIZE)} batches`);
+
+  for (let i = 0; i < headlines.length; i += CONFIG.GEMINI_BATCH_SIZE) {
+    const batch = headlines.slice(i, i + CONFIG.GEMINI_BATCH_SIZE);
+    const { systemPrompt, userPrompt } = buildPrompts(batch);
+
+    // Wait between batches (not before the first one)
+    if (i > 0) await new Promise((r) => setTimeout(r, CONFIG.GEMINI_BATCH_DELAY_MS));
+
+    let retries = 0;
+    let batchDone = false;
+
+    while (!batchDone && retries <= CONFIG.GEMINI_MAX_RETRIES) {
+      try {
+        const { ok, data, error: err, status } = await callGeminiSingleRequest(apiKey, systemPrompt, userPrompt);
+
+        if (!ok) {
+          if (status === 429 && retries < CONFIG.GEMINI_MAX_RETRIES) {
+            retries++;
+            const errMsg = err?.error?.message || "unknown";
+            const wait = CONFIG.GEMINI_RETRY_BASE_MS * retries;
+            console.log(`[Unbait] Gemini 429: "${errMsg}" — retry ${retries}/${CONFIG.GEMINI_MAX_RETRIES} in ${wait/1000}s...`);
+            await new Promise((r) => setTimeout(r, wait));
+            continue;
+          }
+          if (status === 429) {
+            const errMsg = err?.error?.message || "unknown";
+            console.warn(`[Unbait] Gemini rate limit exceeded: "${errMsg}"`);
+            if (errMsg.includes("per_day") || errMsg.includes("RPD") || errMsg.includes("limit: 0")) {
+              return { error: "Gemini daily limit reached (20 requests/day on free tier). Try again tomorrow or switch to Anthropic/OpenAI." };
+            }
+            batchDone = true;
+            continue;
+          }
+          if (status === 400) return { error: "Invalid Gemini API key." };
+          return { error: `Gemini error (${status}): ${err?.error?.message || "Unknown error"}` };
+        }
+
+        console.log("[Unbait] Gemini raw API response:", JSON.stringify(data).substring(0, 500));
+
+        // Check for safety blocks or empty responses
+        const finishReason = data.candidates?.[0]?.finishReason;
+        if (finishReason && finishReason !== "STOP" && finishReason !== "MAX_TOKENS") {
+          console.warn(`[Unbait] Gemini blocked batch (reason: ${finishReason}), skipping`);
+          batchDone = true;
+          continue;
+        }
+
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+        if (!text) {
+          console.warn("[Unbait] Gemini returned empty response, skipping batch");
+          batchDone = true;
+          continue;
+        }
+
+        console.log(`[Unbait] Gemini batch response (${text.length} chars):`, text.substring(0, 200));
+
+        try {
+          const results = parseAndSendResults(text, tabId);
+          console.log(`[Unbait] Gemini batch parsed ${results.length} results`);
+          allResults.push(...results);
+        } catch (parseErr) {
+          console.error("[Unbait] Failed to parse Gemini response:", parseErr.message);
+          console.log("[Unbait] Raw Gemini text:", text.substring(0, 500));
+        }
+
+        batchDone = true;
+      } catch (err) {
+        return { error: `Gemini error: ${err.message}` };
+      }
+    }
+  }
+
+  return { results: allResults };
 }
