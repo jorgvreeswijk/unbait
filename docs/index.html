@@ -455,6 +455,126 @@
       font-size: 0.9rem !important;
     }
 
+    /* Animations */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes scaleIn {
+      from { opacity: 0; transform: scale(0.92); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    @keyframes slideRight {
+      from { opacity: 0; transform: translateX(-16px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    .hero h1 {
+      animation: fadeUp 0.8s ease-out;
+    }
+
+    .hero p {
+      animation: fadeUp 0.8s ease-out 0.15s both;
+    }
+
+    .hero-buttons {
+      animation: fadeUp 0.8s ease-out 0.3s both;
+    }
+
+    .demo-card {
+      animation: scaleIn 0.7s ease-out 0.5s both;
+    }
+
+    /* Scroll reveal */
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+    }
+
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .reveal-scale {
+      opacity: 0;
+      transform: scale(0.95);
+      transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+    }
+
+    .reveal-scale.visible {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    /* Staggered children */
+    .stagger-children > * {
+      opacity: 0;
+      transform: translateY(16px);
+      transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+    }
+
+    .stagger-children.visible > *:nth-child(1) { transition-delay: 0s; }
+    .stagger-children.visible > *:nth-child(2) { transition-delay: 0.08s; }
+    .stagger-children.visible > *:nth-child(3) { transition-delay: 0.16s; }
+    .stagger-children.visible > *:nth-child(4) { transition-delay: 0.24s; }
+    .stagger-children.visible > *:nth-child(5) { transition-delay: 0.32s; }
+    .stagger-children.visible > *:nth-child(6) { transition-delay: 0.40s; }
+    .stagger-children.visible > *:nth-child(7) { transition-delay: 0.48s; }
+
+    .stagger-children.visible > * {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Demo row animation */
+    .demo-row {
+      transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+    }
+
+    .demo-card.visible .demo-row:nth-child(2) { transition-delay: 0.1s; }
+    .demo-card.visible .demo-row:nth-child(3) { transition-delay: 0.2s; }
+    .demo-card.visible .demo-row:nth-child(4) { transition-delay: 0.3s; }
+
+    /* Feature card hover */
+    .feature {
+      transition: transform 0.25s ease-out, box-shadow 0.25s ease-out;
+    }
+
+    .feature:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    }
+
+    /* Step number pulse on reveal */
+    .step-number {
+      transition: transform 0.4s ease-out;
+    }
+
+    .stagger-children.visible .step-number {
+      animation: scaleIn 0.4s ease-out both;
+    }
+
+    /* Prefers reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+      .reveal, .reveal-scale, .stagger-children > * {
+        opacity: 1 !important;
+        transform: none !important;
+      }
+    }
+
     /* Responsive */
     @media (max-width: 640px) {
       .hero h1 { font-size: 2.25rem; }
@@ -532,9 +652,9 @@
     </div>
   </div>
 
-  <section id="how-it-works">
+  <section id="how-it-works" class="reveal">
     <h2>How it works</h2>
-    <div class="steps">
+    <div class="steps stagger-children">
       <div class="step">
         <div class="step-number">1</div>
         <h3>Scan the page</h3>
@@ -567,9 +687,9 @@
     </div>
   </section>
 
-  <section id="features">
+  <section id="features" class="reveal">
     <h2>Features</h2>
-    <div class="features">
+    <div class="features stagger-children">
       <div class="feature">
         <div class="feature-icon">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -615,7 +735,7 @@
     </div>
   </section>
 
-  <section>
+  <section class="reveal">
     <h2>Good to know</h2>
     <div class="honest">
       <h3>AI titles are interpretations</h3>
@@ -632,7 +752,7 @@
     </div>
   </section>
 
-  <section id="getting-started">
+  <section id="getting-started" class="reveal">
     <h2>Getting started</h2>
     <div class="honest">
       <h3>1. Install the extension</h3>
@@ -681,7 +801,7 @@
     </div>
   </section>
 
-  <section style="text-align: center; padding: 3rem 2rem 2rem;">
+  <section class="reveal" style="text-align: center; padding: 3rem 2rem 2rem;">
     <div style="max-width: 480px; margin: 0 auto; padding: 2rem; background: var(--gray-50); border-radius: 12px; border: 1px solid var(--gray-100);">
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 0.75rem;"><path d="M17 11h1a3 3 0 0 1 0 6h-1"/><path d="M9 12v6"/><path d="M13 12v6"/><path d="M14 7.5c-1 0-1.44.5-3 .5s-2-.5-3-.5-1.72.5-2.5.5a2.5 2.5 0 0 1 0-5c.78 0 1.57.5 2.5.5S9.44 2 11 2s2 1.5 3 1.5 1.72-.5 2.5-.5a2.5 2.5 0 0 1 0 5c-.78 0-1.5-.5-2.5-.5Z"/><path d="M5 8v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8"/></svg>
       <h3 style="font-size: 1.25rem; margin-bottom: 0.5rem; color: var(--gray-800);">Buy me a beer</h3>
@@ -705,6 +825,7 @@
   </footer>
 
   <script>
+    // Provider tab switching
     document.querySelectorAll('.provider-tab').forEach(tab => {
       tab.addEventListener('click', () => {
         document.querySelectorAll('.provider-tab').forEach(t => t.classList.remove('active'));
@@ -712,6 +833,31 @@
         const provider = tab.dataset.provider;
         document.querySelectorAll('.provider-instructions').forEach(el => el.style.display = 'none');
         document.getElementById('instructions-' + provider).style.display = 'block';
+      });
+    });
+
+    // Scroll reveal animations
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+
+    document.querySelectorAll('.reveal, .reveal-scale, .stagger-children').forEach(el => {
+      observer.observe(el);
+    });
+
+    // Smooth scroll for nav links
+    document.querySelectorAll('a[href^="#"]').forEach(link => {
+      link.addEventListener('click', (e) => {
+        const target = document.querySelector(link.getAttribute('href'));
+        if (target) {
+          e.preventDefault();
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
       });
     });
   </script>
