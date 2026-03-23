@@ -647,7 +647,7 @@ async function callOpenAI(apiKey, headlines, tabId) {
  * Each batch completes quickly enough to avoid SW termination.
  */
 async function callOpenAIBatched(apiKey, headlines, tabId) {
-  const BATCH_SIZE = 10;
+  const BATCH_SIZE = 8;
   const allResults = [];
 
   for (let i = 0; i < headlines.length; i += BATCH_SIZE) {

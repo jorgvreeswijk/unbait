@@ -94,13 +94,22 @@ async function restoreCachedTitles() {
 
 function restoreIcons() {
   document.querySelectorAll(".unbait-replaced").forEach((el) => {
-    if (!el.parentNode?.querySelector(".unbait-icon") && el.dataset.unbaitNew) {
+    const existingIcon = el.parentNode?.querySelector(".unbait-icon");
+    if (existingIcon) {
+      // bfcache: icon exists but event listeners are gone — recreate it
+      existingIcon.remove();
+    }
+    if (el.dataset.unbaitNew) {
       const icon = document.createElement("span");
       icon.className = "unbait-icon";
       icon.title = "Click to show original";
       icon.setAttribute("role", "button");
       icon.setAttribute("tabindex", "0");
       icon.setAttribute("aria-label", "Toggle original headline");
+      // Restore showing-original state
+      if (el.textContent === el.dataset.unbaitOriginal) {
+        icon.classList.add("showing-original");
+      }
       icon.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
