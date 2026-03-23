@@ -37,6 +37,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return; // already responded synchronously
   }
 
+  if (message.action === "rewrite-youtube-titles") {
+    const tabId = sender.tab?.id;
+    _tabStatus.set(tabId, { state: "working", text: "Processing YouTube titles..." });
+    sendResponse({ accepted: true });
+
+    handleRewrite(message.headlines, tabId, "youtube").then((result) => {
+      if (result && result.error) {
+        _tabStatus.set(tabId, { state: "error", text: result.error });
+      } else if (result && result.results) {
+        _tabStatus.set(tabId, {
+          state: "done", text: "Done!",
+          found: message.headlines.length,
+          count: result.results.filter((r) => r.newTitle).length,
+        });
+      }
+      if (tabId) {
+        chrome.tabs.sendMessage(tabId, {
+          action: "yt-rewrite-complete",
+          results: result?.results || [],
+          error: result?.error,
+        }).catch(() => {});
+      }
+    });
+    return true;
+  }
+
   if (message.action === "get-tab-status") {
     const tabId = message.tabId;
     const status = _tabStatus.get(tabId) || null;
@@ -118,12 +144,29 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
         }
       }).catch((e) => console.debug("[Unbait] Auto-inject failed:", e.message));
     });
+
+    // YouTube support: inject youtube.js if enabled
+    if (hostname === 'www.youtube.com') {
+      chrome.storage.local.get('youtubeEnabled').then(data => {
+        if (data.youtubeEnabled) {
+          chrome.scripting.executeScript({
+            target: { tabId },
+            files: ['content/youtube.js'],
+          }).then(() => {
+            chrome.scripting.insertCSS({
+              target: { tabId },
+              files: ['content/content.css'],
+            });
+          }).catch(() => {});
+        }
+      });
+    }
   } catch {
     // invalid URL, skip
   }
 });
 
-async function handleRewrite(headlines, tabId) {
+async function handleRewrite(headlines, tabId, mode = "news") {
   const data = await chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini", "apiKey"]);
   const provider = data.provider || "anthropic";
 
@@ -161,20 +204,21 @@ async function handleRewrite(headlines, tabId) {
   // Call the selected provider
   _tabStatus.set(tabId, { state: "working", text: `Rewriting with ${provider}...` });
   console.debug(`[Unbait] Calling ${provider} with ${enriched.length} headlines`);
-  const result = await callProvider(provider, apiKey, enriched, tabId);
+  const streamAction = mode === "youtube" ? "yt-stream-result" : "stream-result";
+  const result = await callProvider(provider, apiKey, enriched, tabId, mode, streamAction);
   console.debug(`[Unbait] ${provider} returned:`, result.error || `${result.results?.length || 0} results`);
   return result;
 }
 
-async function callProvider(provider, apiKey, headlines, tabId) {
+async function callProvider(provider, apiKey, headlines, tabId, mode = "news", streamAction = "stream-result") {
   switch (provider) {
     case "openai":
-      return await callOpenAI(apiKey, headlines, tabId);
+      return await callOpenAI(apiKey, headlines, tabId, mode, streamAction);
     case "gemini":
-      return await callGemini(apiKey, headlines, tabId);
+      return await callGemini(apiKey, headlines, tabId, mode, streamAction);
     case "anthropic":
     default:
-      return await callClaudeStreaming(apiKey, headlines, tabId);
+      return await callClaudeStreaming(apiKey, headlines, tabId, mode, streamAction);
   }
 }
 
@@ -358,7 +402,7 @@ function extractContext(html) {
 /**
  * Build the shared prompt parts used by all providers.
  */
-function buildPrompts(headlines) {
+function buildPrompts(headlines, mode = "news") {
   const headlineList = headlines
     .map((h) => {
       let line = `- id: "${h.id}" | kop: "${h.text}"`;
@@ -369,7 +413,22 @@ function buildPrompts(headlines) {
     })
     .join("\n");
 
-  const systemPrompt = `Je bent een redacteur die clickbait-koppen herschrijft naar informatieve titels.
+  let systemPrompt;
+  if (mode === "youtube") {
+    systemPrompt = `You are an editor evaluating and rewriting YouTube video titles.
+
+Rules:
+- Assess if the title is clickbait. YouTube clickbait often uses: ALL CAPS, excessive emoji, vague promises ("you won't believe..."), emotional manipulation, exaggerated claims, or intentionally withheld key information.
+- If the title is already informative and specific, return "newTitle": null. NOT everything needs rewriting.
+- If it IS clickbait: rewrite into a clear, informative title that describes what the video actually shows or explains.
+- IMPORTANT: Always include specific names, products, companies, or people mentioned in the transcript context.
+- Keep the language of the original title.
+- Use the transcript context to make the title accurate and specific.
+- Keep titles concise (max 80 characters).
+- No opinions or editorial tone.
+- Return ONLY valid JSON, no other text.`;
+  } else {
+    systemPrompt = `Je bent een redacteur die clickbait-koppen herschrijft naar informatieve titels.
 
 WANNEER HERSCHRIJVEN:
 Een kop is clickbait als die bewust informatie achterhoudt om klikken te genereren. Signalen:
@@ -398,8 +457,16 @@ REGELS:
 - Behoud de taal van de originele kop
 - Geen meningen of editoriale toon
 - Retourneer ALLEEN valide JSON, geen andere tekst`;
+  }
 
-  const userPrompt = `Beoordeel en herschrijf deze koppen. Retourneer een JSON array met "id" en "newTitle" (null als de kop al goed is).
+  const userPrompt = mode === "youtube"
+    ? `Evaluate and rewrite these YouTube titles. Return a JSON array with "id" and "newTitle" (null if the title is already good).
+
+Titles:
+${headlineList}
+
+Format: [{"id": "headline-0", "newTitle": "..." or null}, ...]`
+    : `Beoordeel en herschrijf deze koppen. Retourneer een JSON array met "id" en "newTitle" (null als de kop al goed is).
 
 Koppen:
 ${headlineList}
@@ -415,7 +482,7 @@ Format: [{"id": "headline-0", "newTitle": "..." of null}, ...]`;
  * and sends them to the content script progressively.
  * Returns the full array of parsed results.
  */
-async function readSSEStream(response, extractDelta, tabId) {
+async function readSSEStream(response, extractDelta, tabId, streamAction = "stream-result") {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let fullText = "";
@@ -447,7 +514,7 @@ async function readSSEStream(response, extractDelta, tabId) {
             // Send to content script immediately for progressive rendering
             if (tabId) {
               chrome.tabs.sendMessage(tabId, {
-                action: "stream-result",
+                action: streamAction,
                 result,
               }).catch(() => {}); // ignore if tab closed
             }
@@ -482,8 +549,8 @@ async function readSSEStream(response, extractDelta, tabId) {
 /**
  * Call Claude API with streaming.
  */
-async function callClaudeStreaming(apiKey, headlines, tabId) {
-  const { systemPrompt, userPrompt } = buildPrompts(headlines);
+async function callClaudeStreaming(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result") {
+  const { systemPrompt, userPrompt } = buildPrompts(headlines, mode);
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -518,7 +585,7 @@ async function callClaudeStreaming(apiKey, headlines, tabId) {
 
     const extractDelta = (event) =>
       event.type === "content_block_delta" ? event.delta?.text : null;
-    const allResults = await readSSEStream(response, extractDelta, tabId);
+    const allResults = await readSSEStream(response, extractDelta, tabId, streamAction);
     return { results: allResults };
   } catch (err) {
     return { error: `Fout: ${err.message}` };
@@ -550,7 +617,7 @@ function tryParsePartialResults(text, alreadySent) {
 /**
  * Parse a non-streaming JSON response and send results to content script.
  */
-function parseAndSendResults(text, tabId) {
+function parseAndSendResults(text, tabId, streamAction = "stream-result") {
   let jsonStr = text
     .replace(/```json\n?/g, "")
     .replace(/```\n?/g, "")
@@ -580,7 +647,7 @@ function parseAndSendResults(text, tabId) {
   for (const result of validated) {
     if (tabId) {
       chrome.tabs.sendMessage(tabId, {
-        action: "stream-result",
+        action: streamAction,
         result,
       }).catch(() => {});
     }
@@ -592,16 +659,16 @@ function parseAndSendResults(text, tabId) {
 /**
  * Call OpenAI API (GPT-4o mini) with streaming.
  */
-async function callOpenAI(apiKey, headlines, tabId) {
+async function callOpenAI(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result") {
   const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
 
   // Safari: batch mode (non-streaming) in small batches to avoid SW timeout
   if (isSafari) {
-    return callOpenAIBatched(apiKey, headlines, tabId);
+    return callOpenAIBatched(apiKey, headlines, tabId, mode, streamAction);
   }
 
   // Chrome: streaming mode for best UX
-  const { systemPrompt, userPrompt } = buildPrompts(headlines);
+  const { systemPrompt, userPrompt } = buildPrompts(headlines, mode);
 
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -630,7 +697,7 @@ async function callOpenAI(apiKey, headlines, tabId) {
 
     const extractDelta = (event) =>
       event.choices?.[0]?.delta?.content || null;
-    const allResults = await readSSEStream(response, extractDelta, tabId);
+    const allResults = await readSSEStream(response, extractDelta, tabId, streamAction);
 
     if (allResults.length === 0) {
       return { error: "Failed to parse OpenAI response." };
@@ -646,13 +713,13 @@ async function callOpenAI(apiKey, headlines, tabId) {
  * Safari-specific: process OpenAI in small non-streaming batches.
  * Each batch completes quickly enough to avoid SW termination.
  */
-async function callOpenAIBatched(apiKey, headlines, tabId) {
+async function callOpenAIBatched(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result") {
   const BATCH_SIZE = 8;
   const allResults = [];
 
   for (let i = 0; i < headlines.length; i += BATCH_SIZE) {
     const batch = headlines.slice(i, i + BATCH_SIZE);
-    const { systemPrompt, userPrompt } = buildPrompts(batch);
+    const { systemPrompt, userPrompt } = buildPrompts(batch, mode);
 
     try {
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -682,7 +749,7 @@ async function callOpenAIBatched(apiKey, headlines, tabId) {
       const data = await response.json();
       const text = data.choices?.[0]?.message?.content || "";
       try {
-        const results = parseAndSendResults(text, tabId);
+        const results = parseAndSendResults(text, tabId, streamAction);
         allResults.push(...results);
       } catch {
         // Skip unparseable batch
@@ -730,13 +797,13 @@ async function callGeminiSingleRequest(apiKey, systemPrompt, userPrompt) {
  * Call Google Gemini API (Gemini 2.5 Flash).
  * Splits headlines into small batches to stay within free tier token limits.
  */
-async function callGemini(apiKey, headlines, tabId) {
+async function callGemini(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result") {
   const allResults = [];
   console.debug(`[Unbait] Gemini: processing ${headlines.length} headlines in ${Math.ceil(headlines.length / CONFIG.GEMINI_BATCH_SIZE)} batches`);
 
   for (let i = 0; i < headlines.length; i += CONFIG.GEMINI_BATCH_SIZE) {
     const batch = headlines.slice(i, i + CONFIG.GEMINI_BATCH_SIZE);
-    const { systemPrompt, userPrompt } = buildPrompts(batch);
+    const { systemPrompt, userPrompt } = buildPrompts(batch, mode);
 
     // Wait between batches (not before the first one)
     if (i > 0) await new Promise((r) => setTimeout(r, CONFIG.GEMINI_BATCH_DELAY_MS));
@@ -795,7 +862,7 @@ async function callGemini(apiKey, headlines, tabId) {
 
 
         try {
-          const results = parseAndSendResults(text, tabId);
+          const results = parseAndSendResults(text, tabId, streamAction);
           allResults.push(...results);
         } catch (parseErr) {
           console.error("[Unbait] Failed to parse Gemini response:", parseErr.message);

@@ -492,3 +492,22 @@ hr {
 .donate-btn:hover {
   background: #ccfbf1;
 }
+
+/* YouTube Mode section */
+#youtube-section input[type="checkbox"] {
+  accent-color: #0d9488;
+  width: 16px;
+  height: 16px;
+}
+
+#youtube-section label {
+  font-size: 0.9rem;
+  color: #374151;
+}
+
+#youtube-section h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #1f2937;
+}

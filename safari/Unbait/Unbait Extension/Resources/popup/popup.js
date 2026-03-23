@@ -75,6 +75,35 @@ if (btnBeer) {
   btnBeer.addEventListener("mouseleave", () => { btnBeer.style.opacity = "0.35"; });
 }
 
+// Load YouTube settings on popup open
+chrome.storage.local.get(['youtubeEnabled', 'youtubeThumbnails'], (data) => {
+  document.getElementById('yt-titles-toggle').checked = !!data.youtubeEnabled;
+  document.getElementById('yt-thumbnails-toggle').checked = !!data.youtubeThumbnails;
+  // Show warning if thumbnails enabled
+  document.getElementById('yt-warning').classList.toggle('hidden', !data.youtubeThumbnails);
+});
+
+// YouTube toggle handlers
+document.getElementById('yt-titles-toggle').addEventListener('change', (e) => {
+  chrome.storage.local.set({ youtubeEnabled: e.target.checked });
+  // If disabling titles, also disable thumbnails
+  if (!e.target.checked) {
+    document.getElementById('yt-thumbnails-toggle').checked = false;
+    chrome.storage.local.set({ youtubeThumbnails: false });
+    document.getElementById('yt-warning').classList.add('hidden');
+  }
+});
+
+document.getElementById('yt-thumbnails-toggle').addEventListener('change', (e) => {
+  chrome.storage.local.set({ youtubeThumbnails: e.target.checked });
+  document.getElementById('yt-warning').classList.toggle('hidden', !e.target.checked);
+  // If enabling thumbnails, also enable titles
+  if (e.target.checked) {
+    document.getElementById('yt-titles-toggle').checked = true;
+    chrome.storage.local.set({ youtubeEnabled: true });
+  }
+});
+
 // Load saved provider + API key on popup open
 chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini", "apiKey"], (data) => {
   // Migrate old single apiKey to anthropic-specific key
@@ -215,8 +244,9 @@ btnDeclickbait.addEventListener("click", async () => {
     });
 
     // Send de-clickbait message to content script
+    const action = _currentHostname === 'www.youtube.com' ? 'de-clickbait-youtube' : 'de-clickbait';
     const response = await chrome.tabs.sendMessage(tab.id, {
-      action: "de-clickbait",
+      action,
     });
 
     if (response && response.error) {
