@@ -17,17 +17,29 @@ if (!window.__unbaitLoaded) {
 const _unbaitElements = new Map();
 const _unbaitApplied = new Set();
 
-// Cache: article URL → { newTitle, timestamp }
-const CACHE_KEY = "unbait_cache";
+// Cache: per-provider, article URL → { newTitle, timestamp }
 const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-async function getCache() {
-  const data = await chrome.storage.local.get(CACHE_KEY);
-  return data[CACHE_KEY] || {};
+function cacheKeyForProvider(provider) {
+  return `unbait_cache_${provider || "anthropic"}`;
 }
 
-async function setCacheEntries(entries) {
-  const cache = await getCache();
+async function getCurrentProvider() {
+  const data = await chrome.storage.local.get("provider");
+  return data.provider || "anthropic";
+}
+
+async function getCache(provider) {
+  if (!provider) provider = await getCurrentProvider();
+  const key = cacheKeyForProvider(provider);
+  const data = await chrome.storage.local.get(key);
+  return data[key] || {};
+}
+
+async function setCacheEntries(entries, provider) {
+  if (!provider) provider = await getCurrentProvider();
+  const key = cacheKeyForProvider(provider);
+  const cache = await getCache(provider);
   const now = Date.now();
 
   // Add new entries
@@ -42,7 +54,7 @@ async function setCacheEntries(entries) {
     }
   }
 
-  await chrome.storage.local.set({ [CACHE_KEY]: cache });
+  await chrome.storage.local.set({ [key]: cache });
 }
 
 async function processHeadlines() {
@@ -55,8 +67,24 @@ async function processHeadlines() {
   _unbaitElements.clear();
   _unbaitApplied.clear();
 
-  // Load cache
-  const cache = await getCache();
+  // Load cache for current provider
+  const provider = await getCurrentProvider();
+  const cache = await getCache(provider);
+
+  // Migrate old global cache to anthropic if it exists
+  const oldData = await chrome.storage.local.get("unbait_cache");
+  if (oldData.unbait_cache && Object.keys(oldData.unbait_cache).length > 0) {
+    const oldCache = oldData.unbait_cache;
+    await setCacheEntries(
+      Object.fromEntries(Object.entries(oldCache).map(([url, entry]) => [url, entry.newTitle])),
+      "anthropic"
+    );
+    await chrome.storage.local.remove("unbait_cache");
+    // Reload cache if we're on anthropic
+    if (provider === "anthropic") {
+      Object.assign(cache, (await getCache(provider)));
+    }
+  }
 
   const headlineData = [];
   const uncachedData = [];
@@ -116,9 +144,9 @@ async function processHeadlines() {
       }
     }
 
-    // Save new results to cache
+    // Save new results to cache (for current provider)
     if (Object.keys(newCacheEntries).length > 0) {
-      setCacheEntries(newCacheEntries);
+      setCacheEntries(newCacheEntries, provider);
     }
 
     // Clean up any remaining loading states
