@@ -483,7 +483,7 @@ addSiteInput.addEventListener("keydown", (e) => {
 // Clear title cache (all providers)
 document.getElementById("btn-clear-cache").addEventListener("click", async () => {
   const allData = await chrome.storage.local.get(null);
-  const cacheKeys = Object.keys(allData).filter((k) => k.startsWith("unbait_cache"));
+  const cacheKeys = Object.keys(allData).filter((k) => k.startsWith("unbait_cache") || k.startsWith("unbait_yt_cache"));
   if (cacheKeys.length === 0) {
     document.getElementById("btn-clear-cache").textContent = "Cache is empty";
     setTimeout(() => {

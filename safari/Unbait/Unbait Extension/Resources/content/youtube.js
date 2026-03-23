@@ -665,11 +665,13 @@ async function processYouTubeTitles() {
     return { error: "No video titles found on this page." };
   }
 
-  // Limit to first 15 visible titles for speed
-  const MAX_TITLES = 15;
-  if (titles.length > MAX_TITLES) {
-    console.debug(`[Unbait YT] Limiting from ${titles.length} to ${MAX_TITLES} titles`);
-    titles = titles.slice(0, MAX_TITLES);
+  // Process in two phases: first 15 for speed, then the rest
+  const FIRST_BATCH = 15;
+  let remainingTitles = null;
+  if (titles.length > FIRST_BATCH) {
+    console.debug(`[Unbait YT] Phase 1: ${FIRST_BATCH} of ${titles.length} titles`);
+    remainingTitles = titles.slice(FIRST_BATCH);
+    titles = titles.slice(0, FIRST_BATCH);
   }
 
   _ytElements.clear();
@@ -709,7 +711,26 @@ async function processYouTubeTitles() {
     // Thumbnail replacement is optional, ignore errors
   }
 
-  return fetchAndApplyResults(uncachedData, provider, cachedCount, titles.length);
+  const result = await fetchAndApplyResults(uncachedData, provider, cachedCount, titles.length);
+
+  // Phase 2: process remaining titles in the background
+  if (remainingTitles && remainingTitles.length > 0) {
+    processRemainingTitles(remainingTitles, provider).catch(() => {});
+  }
+
+  // Start observing for new videos from infinite scroll
+  startObserving();
+
+  return result;
+}
+
+async function processRemainingTitles(titles, provider) {
+  console.debug(`[Unbait YT] Phase 2: processing ${titles.length} remaining titles`);
+  const cache = await loadCache(provider);
+  const { uncachedData, cachedCount } = categorizeHeadlines(titles, cache);
+  if (uncachedData.length === 0) return;
+  await enrichWithTranscripts(uncachedData);
+  await fetchAndApplyResults(uncachedData, provider, cachedCount, titles.length);
 }
 
 // ---------------------------------------------------------------------------
