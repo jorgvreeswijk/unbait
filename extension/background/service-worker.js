@@ -594,6 +594,7 @@ function parseAndSendResults(text, tabId) {
  */
 async function callOpenAI(apiKey, headlines, tabId) {
   const { systemPrompt, userPrompt } = buildPrompts(headlines);
+  const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
 
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -604,7 +605,7 @@ async function callOpenAI(apiKey, headlines, tabId) {
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        stream: true,
+        stream: !isSafari,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -618,6 +619,18 @@ async function callOpenAI(apiKey, headlines, tabId) {
       if (response.status === 401) return { error: "Invalid OpenAI API key." };
       if (response.status === 429) return { error: "Rate limit reached. Try again in a minute." };
       return { error: `OpenAI error (${response.status}): ${err.error?.message || "Unknown error"}` };
+    }
+
+    // Safari: use non-streaming to avoid service worker timeout killing the stream
+    if (isSafari) {
+      const data = await response.json();
+      const text = data.choices?.[0]?.message?.content || "";
+      try {
+        const results = parseAndSendResults(text, tabId);
+        return { results };
+      } catch {
+        return { error: "Could not parse OpenAI response." };
+      }
     }
 
     const extractDelta = (event) =>
