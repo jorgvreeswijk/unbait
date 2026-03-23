@@ -570,7 +570,7 @@ async function fetchAndApplyResults(
     let response;
     try {
       response = await chrome.runtime.sendMessage({
-        action: "rewrite-headlines",
+        action: "rewrite-youtube-titles",
         headlines: uncachedData.map((h) => ({
           id: h.id,
           text: h.text,
