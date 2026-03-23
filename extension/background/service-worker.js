@@ -8,6 +8,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "rewrite-headlines") {
     const tabId = sender.tab?.id;
     _tabStatus.set(tabId, { state: "working", text: "Scanning headlines..." });
+
+    // Respond immediately to avoid Safari killing the message channel
+    sendResponse({ accepted: true });
+
     handleRewrite(message.headlines, tabId).then((result) => {
       if (result && result.error) {
         _tabStatus.set(tabId, { state: "error", text: result.error });
@@ -21,9 +25,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } else {
         _tabStatus.delete(tabId);
       }
-      sendResponse(result);
+      // Send final result via tabs.sendMessage (survives SW lifecycle)
+      if (tabId) {
+        chrome.tabs.sendMessage(tabId, {
+          action: "rewrite-complete",
+          result,
+          found: message.headlines.length,
+        }).catch(() => {});
+      }
     });
-    return true; // async response
+    return; // already responded synchronously
   }
 
   if (message.action === "get-tab-status") {

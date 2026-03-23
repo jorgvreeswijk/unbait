@@ -5,6 +5,7 @@ if (window.__unbaitLoaded) {
 window.__unbaitLoaded = true;
 
 let _isProcessing = false;
+let _rewriteResolve = null;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === "de-clickbait") {
@@ -24,6 +25,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message.action === "stream-result") {
     applyStreamResult(message.result);
+  }
+  if (message.action === "rewrite-complete") {
+    // Final results from service worker (Safari-compatible path)
+    _isProcessing = false;
+    const result = message.result;
+    if (result && result.results) {
+      for (const r of result.results) {
+        applyResult(r);
+      }
+    }
+    // Resolve the pending promise if any
+    if (_rewriteResolve) {
+      const found = message.found || 0;
+      _rewriteResolve({ success: true, found, count: _unbaitApplied.size });
+      _rewriteResolve = null;
+    }
   }
   if (message.action === "get-stats") {
     const replaced = document.querySelectorAll(".unbait-replaced").length;
@@ -336,24 +353,41 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
   try {
     console.debug(`[Unbait] Sending ${uncachedData.length} headlines to service worker...`);
 
+    // Create a promise that resolves when rewrite-complete is received
+    const completePromise = new Promise((resolve) => {
+      _rewriteResolve = resolve;
+    });
+
     let response;
     try {
-      response = await Promise.race([
-        chrome.runtime.sendMessage({
-          action: "rewrite-headlines",
-          headlines: uncachedData,
-        }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), CONFIG.API_TIMEOUT_MS)),
-      ]);
+      response = await chrome.runtime.sendMessage({
+        action: "rewrite-headlines",
+        headlines: uncachedData,
+      });
     } catch (e) {
-      if (e.message === "timeout") {
-        console.warn("[Unbait] Response timed out, but stream-results may have been applied");
-        _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
-        return { success: true, found: totalFound, count: _unbaitApplied.size };
-      }
+      _rewriteResolve = null;
       throw e;
     }
 
+    // Service worker responds immediately with { accepted: true }
+    // or with full results (Chrome often completes before SW terminates)
+    if (response && response.accepted) {
+      // Wait for rewrite-complete message or timeout
+      const result = await Promise.race([
+        completePromise,
+        new Promise((resolve) =>
+          setTimeout(() => {
+            _rewriteResolve = null;
+            resolve({ success: true, found: totalFound, count: _unbaitApplied.size });
+          }, CONFIG.API_TIMEOUT_MS)
+        ),
+      ]);
+      _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
+      return result;
+    }
+
+    // Legacy path: full response returned directly (Chrome fast path)
+    _rewriteResolve = null;
 
     if (!response) {
       _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
@@ -365,7 +399,7 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
       return { error: response.error };
     }
 
-    // For non-streaming fallback: apply all results at once
+    // Apply all results at once
     const newCacheEntries = {};
 
     if (response.results) {
