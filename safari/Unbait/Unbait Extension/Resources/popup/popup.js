@@ -207,7 +207,17 @@ chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiK
     btnDeleteKey.style.display = "flex";
     keyStatus.textContent = "Key saved";
     keyStatus.className = "status-msg success";
+    // Hide provider dropdown when key is saved (cleaner UI)
+    providerSelect.style.display = "none";
+    document.getElementById("btn-switch-provider").style.display = "inline";
   }
+});
+
+// "Switch" link to show provider dropdown again
+document.getElementById("btn-switch-provider").addEventListener("click", (e) => {
+  e.preventDefault();
+  providerSelect.style.display = "";
+  e.target.style.display = "none";
 });
 
 // Load current tab hostname + auto-sites state + existing stats
@@ -311,6 +321,9 @@ btnSaveKey.addEventListener("click", () => {
     keyStatus.className = "status-msg success";
     btnDeclickbait.disabled = false;
     btnDeleteKey.style.display = "flex";
+    // Hide dropdown after saving key
+    providerSelect.style.display = "none";
+    document.getElementById("btn-switch-provider").style.display = "inline";
   });
 });
 
@@ -324,6 +337,9 @@ btnDeleteKey.addEventListener("click", () => {
     keyStatus.className = "status-msg";
     btnDeclickbait.disabled = true;
     btnDeleteKey.style.display = "none";
+    // Show dropdown again when key is deleted
+    providerSelect.style.display = "";
+    document.getElementById("btn-switch-provider").style.display = "none";
   });
 });
 

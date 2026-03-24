@@ -12,7 +12,10 @@
     <div class="section">
       <div class="label-row">
         <label for="provider">AI Provider</label>
-        <button id="btn-info" class="btn-info has-tooltip tooltip-delayed" aria-label="Setup information"><span class="tooltip">Provider info</span>i</button>
+        <div style="display: flex; gap: 0.25rem; align-items: center;">
+          <a id="btn-switch-provider" href="#" style="font-size: 0.75rem; color: #0d9488; text-decoration: none; display: none;">Switch</a>
+          <button id="btn-info" class="btn-info has-tooltip tooltip-delayed" aria-label="Setup information"><span class="tooltip">Provider info</span>i</button>
+        </div>
       </div>
 
       <select id="provider" class="provider-select">
