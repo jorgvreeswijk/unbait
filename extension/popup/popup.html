@@ -12,12 +12,10 @@
     <div class="section">
       <div class="label-row">
         <label for="provider">AI Provider</label>
-        <button id="btn-info" class="btn-info has-tooltip tooltip-delayed" aria-label="Setup information"><span class="tooltip">Provider info</span>i</button>
-      </div>
-
-      <!-- Pill badge (shown when key is saved) -->
-      <div id="provider-pill-row" style="display: none; align-items: center; gap: 0.5rem;">
-        <button id="provider-pill" class="provider-pill"></button>
+        <div style="display: flex; align-items: center; gap: 0.35rem;">
+          <button id="provider-pill" class="provider-pill" style="display: none;"></button>
+          <button id="btn-info" class="btn-info has-tooltip tooltip-delayed" aria-label="Setup information"><span class="tooltip">Provider info</span>i</button>
+        </div>
       </div>
 
       <!-- Dropdown (shown when no key or editing) -->

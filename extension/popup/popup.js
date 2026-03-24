@@ -9,7 +9,6 @@ const statFound = document.getElementById("stat-found");
 const statReplaced = document.getElementById("stat-replaced");
 const providerSelect = document.getElementById("provider");
 const providerPill = document.getElementById("provider-pill");
-const providerPillRow = document.getElementById("provider-pill-row");
 
 const PROVIDER_LABELS = {
   anthropic: "Anthropic (Claude)",
@@ -224,14 +223,14 @@ function showCompactKeyUI() {
   const provider = providerSelect.value;
   providerSelect.style.display = "none";
   providerPill.textContent = PROVIDER_LABELS[provider] || provider;
-  providerPillRow.style.display = "flex";
+  providerPill.style.display = "inline-flex";
   document.getElementById("key-input-section").style.display = "none";
   document.getElementById("key-saved-compact").style.display = "flex";
 }
 
 function showFullKeyUI() {
   providerSelect.style.display = "";
-  providerPillRow.style.display = "none";
+  providerPill.style.display = "none";
   document.getElementById("key-input-section").style.display = "";
   document.getElementById("key-saved-compact").style.display = "none";
 }
