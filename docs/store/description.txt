@@ -1,15 +1,15 @@
 SHORT DESCRIPTION (132 chars max):
-Replace clickbait headlines with clear, informative titles using AI. See what articles are really about before you click.
+Replace clickbait headlines on news sites and YouTube with clear, accurate titles using AI. See what content is really about.
 
 ---
 
 FULL DESCRIPTION:
 
-Tired of vague, curiosity-driven headlines that hide what an article is actually about? Unbait reads the article for you and rewrites the headline so you can tell at a glance whether it's worth your time.
+Tired of vague, curiosity-driven headlines that hide what an article or video is actually about? Unbait reads the article — or analyzes the YouTube transcript — and rewrites the title so you can tell at a glance whether it's worth your time.
 
 HOW IT WORKS
 1. Click the Unbait icon or enable Always On for your favorite sites
-2. Unbait scans the page for headlines and briefly reads each article
+2. Unbait scans the page for headlines and briefly reads each article (or fetches the YouTube transcript)
 3. Your AI rewrites vague or misleading titles into clear, specific ones
 4. Good headlines are left untouched
 
@@ -23,11 +23,14 @@ After: "macOS 17 reduces background energy use by 40%"
 FEATURES
 - Choose your AI: works with Anthropic Claude, OpenAI GPT, or Google Gemini
 - Bring your own API key: no subscriptions, no middleman
+- YouTube support: rewrites video titles using transcript analysis
+- Neutral thumbnails: replaces sensationalized YouTube thumbnails with neutral video frames
+- Transcript depth slider: configure how much of the video transcript your AI reads (1–8 minutes)
 - Always On mode: auto-rewrite headlines on your favorite sites
 - One-click toggle: see the original title anytime
 - Smart caching: revisiting a page is instant, no extra API calls
 - Privacy first: your API key stays local, articles go directly to your AI provider
-- Works on any news site, tech blog, or content aggregator
+- Works on YouTube, news sites, tech blogs, and content aggregators
 
 PRIVACY
 Unbait does not collect any data. There are no Unbait servers. Your API key is stored locally in your browser. Article text is sent directly to your chosen AI provider over HTTPS. Full privacy policy: https://unbait.link/privacy
@@ -37,10 +40,16 @@ GETTING STARTED
 2. Get an API key from Anthropic, OpenAI, or Google
 3. Click the Unbait icon, paste your key, and click "Unbait!"
 
+SPEED
+Typical time per title rewrite:
+- Anthropic Claude Haiku: ~5s (news), ~12s (YouTube)
+- OpenAI GPT-4o mini: ~7s (news), ~15s (YouTube)
+- Google Gemini Flash: ~10s (news), ~22s (YouTube)
+
 COST
 Unbait itself is free and open source. You pay your AI provider directly:
-- Anthropic Claude Haiku: < $0.01 per page
-- OpenAI GPT-4o mini: < $0.01 per page
+- Anthropic Claude Haiku: < $0.01 per page, < $0.01 per 15 YouTube videos
+- OpenAI GPT-4o mini: < $0.01 per page, < $0.01 per 15 YouTube videos
 - Google Gemini Flash: free tier available (20 pages/day)
 
 SOURCE CODE

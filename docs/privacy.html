@@ -140,7 +140,7 @@
 
   <main>
     <h1>Privacy Policy</h1>
-    <p class="updated">Last updated: March 23, 2026</p>
+    <p class="updated">Last updated: March 24, 2026</p>
 
     <div class="highlight">
       <p><strong>The short version:</strong> Unbait does not collect, store, or transmit any of your data to its own servers. There are no Unbait servers. Everything stays on your device or goes directly to your chosen AI provider.</p>
@@ -148,22 +148,25 @@
 
     <h2>What Unbait does</h2>
     <p>Unbait is a browser extension that replaces clickbait headlines with informative titles. To do this, it briefly fetches the text of articles on the page you are viewing and sends that text to an AI provider to generate a better headline.</p>
+    <p>On YouTube, Unbait fetches video transcripts (captions) to understand the video content. The transcript text (covering the first 1–8 minutes of the video, depending on the transcript depth setting) is sent to your AI provider along with the video title. Neutral thumbnail frames are loaded directly from YouTube's own image servers (i.ytimg.com) — no external service is involved.</p>
 
     <h2>Data stored on your device</h2>
     <ul>
       <li><strong>API key</strong> — stored in your browser's local extension storage. Never sent anywhere except directly to your chosen AI provider over HTTPS.</li>
       <li><strong>Provider preference</strong> — which AI provider you selected (Anthropic, OpenAI, or Google Gemini).</li>
       <li><strong>Always On sites</strong> — the list of websites where you enabled automatic de-clickbaiting.</li>
-      <li><strong>Title cache</strong> — rewritten headlines are cached locally for up to 7 days to avoid repeated API calls. The cache is capped at 500 entries and can be cleared manually.</li>
+      <li><strong>Title cache</strong> — rewritten headlines (including YouTube titles) are cached locally for up to 7 days to avoid repeated API calls. The cache is capped at 500 entries and can be cleared manually.</li>
+      <li><strong>Transcript depth setting</strong> — your preferred transcript depth (how much of a YouTube video's captions are sent to the AI provider). Stored locally alongside your other preferences.</li>
     </ul>
 
     <h2>Data sent to third parties</h2>
     <p>When Unbait rewrites headlines, it sends the following directly to your chosen AI provider:</p>
     <ul>
-      <li>The original headline text</li>
-      <li>A brief excerpt of the article (first few paragraphs) for context</li>
+      <li>The original headline or video title</li>
+      <li>A brief excerpt of the article (first few paragraphs) for context, or the YouTube video transcript (first 1–8 minutes depending on the transcript depth setting)</li>
       <li>Your API key (for authentication)</li>
     </ul>
+    <p>On YouTube, neutral thumbnail frames are loaded from YouTube's own image servers (i.ytimg.com) and are not sent to any AI provider or external service.</p>
     <p>This data is sent directly from your browser to the AI provider's API. Unbait has no intermediary server. The AI providers and their privacy policies are:</p>
     <ul>
       <li><a href="https://www.anthropic.com/privacy">Anthropic (Claude)</a></li>

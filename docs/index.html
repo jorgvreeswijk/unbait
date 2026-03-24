@@ -612,7 +612,7 @@
 
   <section class="hero">
     <h1>See what articles<br>are <em>really</em> about</h1>
-    <p>Unbait replaces vague, clickbait headlines with clear, informative titles using AI. Stop clicking articles that waste your time.</p>
+    <p>Unbait replaces vague, clickbait headlines and YouTube titles with clear, informative ones using AI. Stop clicking content that wastes your time.</p>
     <div class="hero-buttons">
       <a href="https://github.com/jorgvreeswijk/unbait/releases" class="btn btn-primary">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -652,21 +652,45 @@
     </div>
   </div>
 
+  <div class="demo" style="margin-top: -2rem;">
+    <div class="demo-card">
+      <div class="demo-site-bar">
+        <span class="demo-dot"></span>
+        <span class="demo-dot"></span>
+        <span class="demo-dot"></span>
+        <span class="demo-url">youtube.com</span>
+      </div>
+      <div class="demo-site-name" style="border-bottom-color: #ff0000;">YouTube</div>
+      <div class="demo-row">
+        <span class="demo-before">I QUIT MY JOB to make YouTube videos</span>
+        <span class="demo-arrow">&rarr;</span>
+        <span class="demo-after">Software engineer's first year as full-time YouTuber</span>
+        <span class="demo-badge"><svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><text x="16" y="16" text-anchor="middle" dominant-baseline="central" font-family="Arial" font-size="22" font-weight="800" fill="white">U</text></svg></span>
+      </div>
+      <div class="demo-row">
+        <span class="demo-before">This changed EVERYTHING about how I cook</span>
+        <span class="demo-arrow">&rarr;</span>
+        <span class="demo-after">Review: Breville Joule oven after 6 months of daily use</span>
+        <span class="demo-badge"><svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><text x="16" y="16" text-anchor="middle" dominant-baseline="central" font-family="Arial" font-size="22" font-weight="800" fill="white">U</text></svg></span>
+      </div>
+    </div>
+  </div>
+
   <section id="how-it-works" class="reveal">
     <h2>How it works</h2>
     <div class="steps stagger-children">
       <div class="step">
         <div class="step-number">1</div>
         <h3>Scan the page</h3>
-        <p>Unbait finds all article headlines on the page you're viewing.</p>
+        <p>Unbait finds all article headlines or YouTube video titles on the page you're viewing.</p>
       </div>
       <div class="step-arrow">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
       </div>
       <div class="step">
         <div class="step-number">2</div>
-        <h3>Read the article</h3>
-        <p>For each headline, it briefly fetches the article to understand the actual content.</p>
+        <h3>Read the content</h3>
+        <p>For each headline, it fetches the article or YouTube transcript to understand the actual content.</p>
       </div>
       <div class="step-arrow">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
@@ -723,7 +747,7 @@
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
         </div>
         <h3>Works on any site</h3>
-        <p>Enable for any news site, tech blog, or content aggregator. You control which sites Unbait runs on.</p>
+        <p>Enable for any news site, tech blog, content aggregator, or YouTube. You control which sites Unbait runs on.</p>
       </div>
       <div class="feature">
         <div class="feature-icon">
@@ -731,6 +755,13 @@
         </div>
         <h3>Selective rewriting</h3>
         <p>Only clickbait headlines get rewritten. Clear, informative titles are left untouched.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        </div>
+        <h3>YouTube support</h3>
+        <p>Rewrites clickbait video titles and replaces sensational thumbnails with neutral frames. Uses transcript-based analysis with configurable depth for accurate results.</p>
       </div>
     </div>
   </section>
@@ -768,7 +799,7 @@
       </div>
 
       <div class="provider-instructions" id="instructions-anthropic">
-        <p><strong>Model:</strong> Claude Haiku 4.5 &middot; <strong>Cost:</strong> &lt; $0.01 per page &middot; <strong style="color: var(--teal);">Recommended</strong></p>
+        <p><strong>Model:</strong> Claude Haiku 4.5 &middot; <strong>Cost:</strong> &lt; $0.01 per page, &lt; $0.01 per 15 YouTube videos &middot; <strong>Speed:</strong> ~5s news, ~12s YouTube &middot; <strong style="color: var(--teal);">Fastest</strong></p>
         <ol>
           <li>Go to <a href="https://console.anthropic.com">console.anthropic.com</a> and create a developer account (or sign in with your Claude account).</li>
           <li>Go to <em>Settings &gt; Billing</em>, add a payment method and deposit at least $5. Note: API billing is separate from a Claude Pro subscription.</li>
@@ -778,7 +809,7 @@
       </div>
 
       <div class="provider-instructions" id="instructions-openai" style="display:none">
-        <p><strong>Model:</strong> GPT-4o mini &middot; <strong>Cost:</strong> &lt; $0.01 per page</p>
+        <p><strong>Model:</strong> GPT-4o mini &middot; <strong>Cost:</strong> &lt; $0.01 per page, &lt; $0.01 per 15 YouTube videos &middot; <strong>Speed:</strong> ~7s news, ~15s YouTube</p>
         <ol>
           <li>Go to <a href="https://platform.openai.com">platform.openai.com</a> and sign up or log in.</li>
           <li>Go to <em>Settings &gt; Billing</em>, add a payment method and deposit at least $5.</li>
@@ -788,7 +819,7 @@
       </div>
 
       <div class="provider-instructions" id="instructions-gemini" style="display:none">
-        <p><strong>Model:</strong> Gemini 2.5 Flash &middot; <strong>Cost:</strong> Free but limited (20 pages/day, 5/min)</p>
+        <p><strong>Model:</strong> Gemini 2.5 Flash &middot; <strong>Cost:</strong> Free but limited (20 pages/day, 5/min) &middot; <strong>Speed:</strong> ~10s news, ~22s YouTube</p>
         <ol>
           <li>Go to <a href="https://aistudio.google.com/apikey">aistudio.google.com/apikey</a> and create a new API key.</li>
           <li>No billing required. The free tier allows ~20 pages per day.</li>
@@ -797,7 +828,7 @@
       </div>
 
       <h3>3. Paste your key and go</h3>
-      <p>Click the Unbait icon in your browser toolbar, select your provider, paste your API key, and click "Unbait!" or enable Always On for your favorite sites.</p>
+      <p>Click the Unbait icon in your browser toolbar, select your provider, paste your API key, and click "Unbait!" or enable Always On for your favorite sites. To enable YouTube support, toggle the YouTube option in the extension popup.</p>
     </div>
   </section>
 
