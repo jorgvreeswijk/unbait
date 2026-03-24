@@ -55,6 +55,40 @@ function updateBadge(tabId, state, count) {
   }
 }
 
+// Inject content script and trigger de-clickbait on a tab
+function triggerDeclickbait(tabId) {
+  if (!tabId) return;
+  updateBadge(tabId, "working");
+
+  const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
+  chrome.tabs.get(tabId).then((tab) => {
+    let isYouTube = false;
+    try { isYouTube = YT_HOSTS.includes(new URL(tab.url).hostname); } catch {}
+
+    if (isYouTube) {
+      chrome.scripting.executeScript({
+        target: { tabId },
+        files: ["content/youtube.js"],
+      }).then(() => {
+        chrome.scripting.insertCSS({ target: { tabId }, files: ["content/content.css"] });
+        setTimeout(() => {
+          chrome.tabs.sendMessage(tabId, { action: "de-clickbait-youtube" }).catch(() => {});
+        }, CONFIG.AUTO_TRIGGER_DELAY_MS);
+      }).catch(() => {});
+    } else {
+      chrome.scripting.executeScript({
+        target: { tabId },
+        files: ["content/content.js"],
+      }).then(() => {
+        chrome.scripting.insertCSS({ target: { tabId }, files: ["content/content.css"] });
+        setTimeout(() => {
+          chrome.tabs.sendMessage(tabId, { action: "de-clickbait" }).catch(() => {});
+        }, CONFIG.AUTO_TRIGGER_DELAY_MS);
+      }).catch(() => {});
+    }
+  }).catch(() => {});
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Verify sender is from our own extension or a valid tab
   if (sender.id !== chrome.runtime.id) return;
@@ -81,10 +115,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (isYT) {
         await chrome.storage.local.set({ youtubeEnabled: true });
       }
-      // Show working badge immediately and trigger de-clickbait
+      // Trigger de-clickbait directly (not via message — that doesn't work within same listener)
       if (tabId) {
-        updateBadge(tabId, "working");
-        chrome.runtime.sendMessage({ action: "trigger-declickbait", tabId }).catch(() => {});
+        triggerDeclickbait(tabId);
       }
     });
     sendResponse({ ok: true });
@@ -109,47 +142,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === "trigger-declickbait") {
-    // Immediately inject and de-clickbait a tab (used by Always On enable)
-    const tabId = message.tabId;
-    if (!tabId) return;
-    updateBadge(tabId, "working");
-
-    // Detect YouTube to use the correct flow
-    const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
-    chrome.tabs.get(tabId).then((tab) => {
-      let isYouTube = false;
-      try { isYouTube = YT_HOSTS.includes(new URL(tab.url).hostname); } catch {}
-
-      if (isYouTube) {
-        // YouTube flow: inject youtube.js + youtube CSS
-        chrome.scripting.executeScript({
-          target: { tabId },
-          files: ["content/youtube.js"],
-        }).then(() => {
-          chrome.scripting.insertCSS({
-            target: { tabId },
-            files: ["content/content.css"],
-          });
-          setTimeout(() => {
-            chrome.tabs.sendMessage(tabId, { action: "de-clickbait-youtube" }).catch(() => {});
-          }, CONFIG.AUTO_TRIGGER_DELAY_MS);
-        }).catch(() => {});
-      } else {
-        // Regular news site flow
-        chrome.scripting.executeScript({
-          target: { tabId },
-          files: ["content/content.js"],
-        }).then(() => {
-          chrome.scripting.insertCSS({
-            target: { tabId },
-            files: ["content/content.css"],
-          });
-          setTimeout(() => {
-            chrome.tabs.sendMessage(tabId, { action: "de-clickbait" }).catch(() => {});
-          }, CONFIG.AUTO_TRIGGER_DELAY_MS);
-        }).catch(() => {});
-      }
-    }).catch(() => {});
+    triggerDeclickbait(message.tabId);
     return;
   }
 
