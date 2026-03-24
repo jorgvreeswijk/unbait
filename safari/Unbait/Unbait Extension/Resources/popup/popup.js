@@ -539,21 +539,33 @@ btnToggleSite.addEventListener("click", async () => {
     // Get the tab BEFORE the permission dialog (which may close the popup)
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-    // Request permission — this may close the popup!
-    const granted = await requestSitePermission(_currentHostname);
-    if (!granted) return;
-
-    // Delegate to service worker — this survives popup closing
-    chrome.runtime.sendMessage({
+    // Save site BEFORE permission dialog — popup may die during dialog
+    // Service worker handles the storage write reliably
+    await chrome.runtime.sendMessage({
       action: "enable-site",
       hostname: _currentHostname,
       tabId: tab?.id,
-    }).catch(() => {});
+    });
 
-    // Update UI immediately (best effort, popup may already be closing)
+    // Update UI immediately (YouTube checkbox)
     if (isYouTube) {
       const ytCheckbox = document.getElementById("yt-rewrite");
       if (ytCheckbox) ytCheckbox.checked = true;
+    }
+
+    // Request permission — this may close the popup!
+    // Site is already saved, so if popup dies, it's still in the list.
+    const granted = await requestSitePermission(_currentHostname);
+    if (!granted) {
+      // User declined — remove the site we just added
+      chrome.runtime.sendMessage({ action: "disable-site", hostname: _currentHostname }).catch(() => {});
+      if (isYouTube) {
+        const ytCheckbox = document.getElementById("yt-rewrite");
+        if (ytCheckbox) ytCheckbox.checked = false;
+      }
+      updateSiteToggle();
+      renderSitesList();
+      return;
     }
   }
 

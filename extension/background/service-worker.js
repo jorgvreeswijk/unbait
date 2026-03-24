@@ -1,18 +1,21 @@
 // Track active job status per tab
 const _tabStatus = new Map();
 
-// Badge helper: show status on extension icon per tab
+// Dynamic icon helper: generate icon with status overlay
 function updateBadge(tabId, state, count) {
   try {
     if (state === "working") {
-      chrome.action.setBadgeText({ text: "...", tabId });
+      chrome.action.setBadgeText({ text: "···", tabId });
       chrome.action.setBadgeBackgroundColor({ color: "#0d9488", tabId });
+      chrome.action.setBadgeTextColor({ color: "#ffffff", tabId });
     } else if (state === "done") {
       chrome.action.setBadgeText({ text: count > 0 ? String(count) : "\u2713", tabId });
       chrome.action.setBadgeBackgroundColor({ color: "#0d9488", tabId });
+      chrome.action.setBadgeTextColor({ color: "#ffffff", tabId });
     } else if (state === "error") {
       chrome.action.setBadgeText({ text: "!", tabId });
       chrome.action.setBadgeBackgroundColor({ color: "#ef4444", tabId });
+      chrome.action.setBadgeTextColor({ color: "#ffffff", tabId });
     } else {
       chrome.action.setBadgeText({ text: "", tabId });
     }
