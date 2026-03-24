@@ -131,6 +131,11 @@ document.getElementById('yt-thumbnails-toggle').addEventListener('change', (e) =
   }
 });
 
+// YouTube settings panel toggle (gear icon)
+document.getElementById('btn-yt-settings').addEventListener('click', () => {
+  document.getElementById('yt-settings-panel').classList.toggle('hidden');
+});
+
 // YouTube info panel toggle
 document.getElementById('btn-yt-info').addEventListener('click', () => {
   document.getElementById('yt-info-panel').classList.toggle('hidden');
