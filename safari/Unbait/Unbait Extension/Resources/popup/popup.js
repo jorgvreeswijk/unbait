@@ -68,11 +68,38 @@ btnAbout.addEventListener("click", () => {
   btnAbout.textContent = isHidden ? "About Unbait" : "Close";
 });
 
-// Beer icon hover (CSP-safe, no inline handlers)
+// Footer icon hover (CSP-safe, no inline handlers)
 const btnBeer = document.getElementById("btn-beer");
 if (btnBeer) {
   btnBeer.addEventListener("mouseenter", () => { btnBeer.style.opacity = "0.75"; });
   btnBeer.addEventListener("mouseleave", () => { btnBeer.style.opacity = "0.35"; });
+}
+
+// Share button — copy message to clipboard
+const btnShare = document.getElementById("btn-share");
+if (btnShare) {
+  btnShare.addEventListener("mouseenter", () => { btnShare.style.opacity = "0.75"; });
+  btnShare.addEventListener("mouseleave", () => { btnShare.style.opacity = "0.35"; });
+  btnShare.addEventListener("click", async () => {
+    const msg = "Unbait — See what articles are really about. Replaces clickbait headlines with clear, informative titles using AI. Try it: https://unbait.link";
+    try {
+      await navigator.clipboard.writeText(msg);
+      btnShare.title = "Copied!";
+      setTimeout(() => { btnShare.title = "Share Unbait"; }, 2000);
+    } catch {
+      // Fallback for browsers that don't support clipboard API in popups
+      const ta = document.createElement("textarea");
+      ta.value = msg;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      btnShare.title = "Copied!";
+      setTimeout(() => { btnShare.title = "Share Unbait"; }, 2000);
+    }
+  });
 }
 
 // Load YouTube settings on popup open
