@@ -27,7 +27,8 @@ const YT_CONFIG = {
   CACHE_MAX_AGE_MS: 7 * 24 * 60 * 60 * 1000,
   CACHE_MAX_ENTRIES: 500,
   API_TIMEOUT_MS: 120000,
-  TRANSCRIPT_CONCURRENCY: 6,
+  TRANSCRIPT_CONCURRENCY: 2,
+  TRANSCRIPT_BATCH_DELAY_MS: 1500,
   TRANSCRIPT_TIMEOUT_MS: 5000,
   TRANSCRIPT_MAX_CHARS: 1000,
   TRANSCRIPT_MAX_TIME_MS: 120000, // first ~2 minutes of captions
@@ -394,6 +395,10 @@ async function enrichWithTranscripts(titles) {
   ) {
     const batch = titles.slice(i, i + YT_CONFIG.TRANSCRIPT_CONCURRENCY);
     await Promise.all(batch.map(enrichOne));
+    // Delay between batches to avoid YouTube rate limiting
+    if (i + YT_CONFIG.TRANSCRIPT_CONCURRENCY < titles.length) {
+      await new Promise((r) => setTimeout(r, YT_CONFIG.TRANSCRIPT_BATCH_DELAY_MS));
+    }
   }
 
   const withContext = titles.filter((t) => t.context).length;
