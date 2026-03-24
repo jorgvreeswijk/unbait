@@ -76,14 +76,47 @@ if (btnBeer) {
 }
 
 // Load YouTube settings on popup open
-chrome.storage.local.get(['youtubeEnabled', 'youtubeThumbnails'], (data) => {
+const SLIDER_LABELS = {
+  1: 'Fast, minimal context',
+  2: '<strong>Recommended</strong> balance',
+  3: 'More context, slower',
+  4: '<span class="yt-slider-warning">Maximum precision \u26a0\ufe0f higher API cost</span>'
+};
+
+function updateSliderLabel(value) {
+  document.getElementById('yt-slider-label').innerHTML = SLIDER_LABELS[value] || '';
+}
+
+function updateSliderVisibility() {
+  const titlesOn = document.getElementById('yt-titles-toggle').checked;
+  const sliderContainer = document.getElementById('yt-slider-container');
+  if (sliderContainer) {
+    sliderContainer.classList.toggle('hidden', !titlesOn);
+  }
+}
+
+chrome.storage.local.get(['youtubeEnabled', 'youtubeThumbnails', 'ytTranscriptDepth'], (data) => {
   document.getElementById('yt-titles-toggle').checked = !!data.youtubeEnabled;
   document.getElementById('yt-thumbnails-toggle').checked = !!data.youtubeThumbnails;
+  const slider = document.getElementById('yt-transcript-slider');
+  if (slider) {
+    slider.value = data.ytTranscriptDepth || 2;
+    updateSliderLabel(slider.value);
+  }
+  updateSliderVisibility();
+});
+
+// YouTube transcript slider
+document.getElementById('yt-transcript-slider')?.addEventListener('input', (e) => {
+  const val = parseInt(e.target.value, 10);
+  updateSliderLabel(val);
+  chrome.storage.local.set({ ytTranscriptDepth: val });
 });
 
 // YouTube toggle handlers
 document.getElementById('yt-titles-toggle').addEventListener('change', (e) => {
   chrome.storage.local.set({ youtubeEnabled: e.target.checked });
+  updateSliderVisibility();
   if (!e.target.checked) {
     document.getElementById('yt-thumbnails-toggle').checked = false;
     chrome.storage.local.set({ youtubeThumbnails: false });

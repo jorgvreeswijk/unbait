@@ -739,10 +739,20 @@ async function fetchAndApplyResults(
 window.__unbaitYTProcess = processYouTubeTitles;
 
 async function processYouTubeTitles() {
-  // Read thumbnail setting
+  // Read settings: thumbnails + transcript depth
   try {
-    const stored = await chrome.storage.local.get("youtubeThumbnails");
+    const stored = await chrome.storage.local.get(["youtubeThumbnails", "ytTranscriptDepth"]);
     _ytReplaceThumbnails = !!stored.youtubeThumbnails;
+    const depth = stored.ytTranscriptDepth || 2;
+    const depthMap = {
+      1: { chars: 500, timeMs: 60000 },
+      2: { chars: 1000, timeMs: 120000 },
+      3: { chars: 2000, timeMs: 240000 },
+      4: { chars: 4000, timeMs: 480000 },
+    };
+    const settings = depthMap[depth] || depthMap[2];
+    YT_CONFIG.TRANSCRIPT_MAX_CHARS = settings.chars;
+    YT_CONFIG.TRANSCRIPT_MAX_TIME_MS = settings.timeMs;
   } catch { _ytReplaceThumbnails = false; }
 
   // YouTube loads content dynamically — wait for titles to appear

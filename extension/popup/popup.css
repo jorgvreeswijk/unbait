@@ -493,6 +493,54 @@ hr {
   background: #ccfbf1;
 }
 
+.footer-icon {
+  opacity: 0.35;
+  transition: opacity 0.2s;
+  display: flex;
+  align-items: center;
+}
+
+.footer-icon:hover {
+  opacity: 0.75;
+}
+
+/* YouTube transcript slider */
+.yt-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: #e5e7eb;
+  outline: none;
+}
+
+.yt-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #0d9488;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.yt-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #0d9488;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.yt-slider-warning {
+  color: #d97706;
+}
+
 /* YouTube Mode section */
 .yt-section {
   background: #f0fdfa;
