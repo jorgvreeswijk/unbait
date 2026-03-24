@@ -12,12 +12,15 @@
     <div class="section">
       <div class="label-row">
         <label for="provider">AI Provider</label>
-        <div style="display: flex; gap: 0.35rem; align-items: center;">
-          <a id="btn-switch-provider" href="#" class="btn-switch has-tooltip tooltip-delayed" style="display: none;"><span class="tooltip">Switch provider</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg></a>
-          <button id="btn-info" class="btn-info has-tooltip tooltip-delayed" aria-label="Setup information"><span class="tooltip">Provider info</span>i</button>
-        </div>
+        <button id="btn-info" class="btn-info has-tooltip tooltip-delayed" aria-label="Setup information"><span class="tooltip">Provider info</span>i</button>
       </div>
 
+      <!-- Pill badge (shown when key is saved) -->
+      <div id="provider-pill-row" style="display: none; align-items: center; gap: 0.5rem;">
+        <button id="provider-pill" class="provider-pill"></button>
+      </div>
+
+      <!-- Dropdown (shown when no key or editing) -->
       <select id="provider" class="provider-select">
         <option value="anthropic">Anthropic (Claude)</option>
         <option value="openai">OpenAI (GPT)</option>

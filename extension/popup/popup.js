@@ -8,6 +8,14 @@ const statsEl = document.getElementById("stats");
 const statFound = document.getElementById("stat-found");
 const statReplaced = document.getElementById("stat-replaced");
 const providerSelect = document.getElementById("provider");
+const providerPill = document.getElementById("provider-pill");
+const providerPillRow = document.getElementById("provider-pill-row");
+
+const PROVIDER_LABELS = {
+  anthropic: "Anthropic (Claude)",
+  openai: "OpenAI (GPT)",
+  gemini: "Google (Gemini)",
+};
 
 // Always On elements
 const btnToggleSite = document.getElementById("btn-toggle-site");
@@ -213,15 +221,17 @@ chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiK
 });
 
 function showCompactKeyUI() {
+  const provider = providerSelect.value;
   providerSelect.style.display = "none";
-  document.getElementById("btn-switch-provider").style.display = "inline";
+  providerPill.textContent = PROVIDER_LABELS[provider] || provider;
+  providerPillRow.style.display = "flex";
   document.getElementById("key-input-section").style.display = "none";
   document.getElementById("key-saved-compact").style.display = "flex";
 }
 
 function showFullKeyUI() {
   providerSelect.style.display = "";
-  document.getElementById("btn-switch-provider").style.display = "none";
+  providerPillRow.style.display = "none";
   document.getElementById("key-input-section").style.display = "";
   document.getElementById("key-saved-compact").style.display = "none";
 }
@@ -232,11 +242,9 @@ document.getElementById("btn-edit-key").addEventListener("click", (e) => {
   showFullKeyUI();
 });
 
-// "Switch" link to show provider dropdown again
-document.getElementById("btn-switch-provider").addEventListener("click", (e) => {
-  e.preventDefault();
-  providerSelect.style.display = "";
-  e.target.style.display = "none";
+// Pill click to show provider dropdown
+providerPill.addEventListener("click", () => {
+  showFullKeyUI();
 });
 
 // Load current tab hostname + auto-sites state + existing stats
