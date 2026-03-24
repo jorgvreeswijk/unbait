@@ -249,7 +249,7 @@ async function enrichWithContext(headlines) {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), CONFIG.CONTEXT_TIMEOUT_MS);
-        const resp = await fetch(h.url, { signal: controller.signal });
+        const resp = await fetch(h.url, { signal: controller.signal, credentials: "omit", referrer: "" });
         clearTimeout(timeoutId);
 
         if (!resp.ok) return { ...h, context: "" };

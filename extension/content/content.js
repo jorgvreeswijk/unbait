@@ -243,7 +243,7 @@ async function enrichHeadlinesWithContext(headlines) {
         if (url.hostname !== currentHost) return h;
         const controller = new AbortController();
         const tid = setTimeout(() => controller.abort(), CONFIG.CONTEXT_TIMEOUT_MS);
-        const resp = await fetch(h.url, { signal: controller.signal });
+        const resp = await fetch(h.url, { signal: controller.signal, credentials: "omit", referrer: "" });
         clearTimeout(tid);
         if (!resp.ok) return h;
         const ct = resp.headers.get("content-type") || "";

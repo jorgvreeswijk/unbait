@@ -107,13 +107,20 @@ if (btnShare) {
 // Load YouTube settings on popup open
 const SLIDER_LABELS = {
   1: 'Fast, minimal context',
-  2: '<strong>Recommended</strong> balance',
-  3: 'More context, slower',
-  4: '<span class="yt-slider-warning">Maximum precision \u26a0\ufe0f higher API cost</span>'
+  2: { text: 'Recommended balance', bold: true },
+  3: { text: 'More context, slower' },
+  4: { text: 'Maximum precision \u26a0\ufe0f higher API cost', warning: true }
 };
 
 function updateSliderLabel(value) {
-  document.getElementById('yt-slider-label').innerHTML = SLIDER_LABELS[value] || '';
+  const label = document.getElementById('yt-slider-label');
+  const config = SLIDER_LABELS[value];
+  if (!config) { label.textContent = ''; return; }
+  label.textContent = typeof config === 'string' ? config : config.text;
+  label.className = 'yt-slider-label-text';
+  if (config.bold) label.style.fontWeight = '600';
+  else label.style.fontWeight = '';
+  if (config.warning) label.classList.add('yt-slider-warning');
 }
 
 function updateYTToggleState() {
@@ -180,10 +187,13 @@ document.getElementById('btn-yt-info').addEventListener('click', () => {
 
 // Load saved provider + API key on popup open
 chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini", "apiKey"], (data) => {
-  // Migrate old single apiKey to anthropic-specific key
+  // Migrate old single apiKey to anthropic-specific key and clean up
   if (data.apiKey && !data.apiKey_anthropic) {
     chrome.storage.local.set({ apiKey_anthropic: data.apiKey });
+    chrome.storage.local.remove("apiKey");
     data.apiKey_anthropic = data.apiKey;
+  } else if (data.apiKey) {
+    chrome.storage.local.remove("apiKey");
   }
 
   const provider = data.provider || "anthropic";
@@ -265,6 +275,22 @@ btnToggleKey.addEventListener("click", () => {
   document.getElementById("icon-eye-off").classList.toggle("hidden", !isPassword);
 });
 
+// API key format validation per provider
+function validateKeyFormat(key, provider) {
+  switch (provider) {
+    case "anthropic":
+      if (!key.startsWith("sk-ant-")) return "Anthropic keys start with sk-ant-";
+      break;
+    case "openai":
+      if (!key.startsWith("sk-")) return "OpenAI keys start with sk-";
+      break;
+    case "gemini":
+      if (!key.startsWith("AIza")) return "Gemini keys start with AIza";
+      break;
+  }
+  return null;
+}
+
 // Save API key per provider
 btnSaveKey.addEventListener("click", () => {
   const key = apiKeyInput.value.trim();
@@ -274,6 +300,12 @@ btnSaveKey.addEventListener("click", () => {
     return;
   }
   const provider = providerSelect.value;
+  const formatError = validateKeyFormat(key, provider);
+  if (formatError) {
+    keyStatus.textContent = formatError;
+    keyStatus.className = "status-msg error";
+    return;
+  }
   chrome.storage.local.set({ [`apiKey_${provider}`]: key, provider }, () => {
     keyStatus.textContent = "Key saved";
     keyStatus.className = "status-msg success";
@@ -555,24 +587,25 @@ addSiteInput.addEventListener("keydown", (e) => {
 });
 
 // Clear title cache (all providers)
-document.getElementById("btn-clear-cache").addEventListener("click", async () => {
+const btnClearCache = document.getElementById("btn-clear-cache");
+const _clearCacheOrigHTML = btnClearCache.cloneNode(true);
+function restoreClearBtn() {
+  btnClearCache.textContent = "";
+  for (const child of [..._clearCacheOrigHTML.childNodes]) {
+    btnClearCache.appendChild(child.cloneNode(true));
+  }
+  btnClearCache.style.color = "";
+}
+btnClearCache.addEventListener("click", async () => {
   const allData = await chrome.storage.local.get(null);
   const cacheKeys = Object.keys(allData).filter((k) => k.startsWith("unbait_cache") || k.startsWith("unbait_yt_cache"));
   if (cacheKeys.length === 0) {
-    document.getElementById("btn-clear-cache").textContent = "Cache is empty";
-    setTimeout(() => {
-      document.getElementById("btn-clear-cache").innerHTML =
-        '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg> Clear title cache';
-    }, 1500);
+    btnClearCache.textContent = "Cache is empty";
+    setTimeout(restoreClearBtn, 1500);
     return;
   }
   await chrome.storage.local.remove(cacheKeys);
-  const btn = document.getElementById("btn-clear-cache");
-  btn.textContent = `Cleared ${cacheKeys.length} cache(s)`;
-  btn.style.color = "#0d9488";
-  setTimeout(() => {
-    btn.innerHTML =
-      '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg> Clear title cache';
-    btn.style.color = "";
-  }, 2000);
+  btnClearCache.textContent = `Cleared ${cacheKeys.length} cache(s)`;
+  btnClearCache.style.color = "#0d9488";
+  setTimeout(restoreClearBtn, 2000);
 });

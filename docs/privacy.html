@@ -146,9 +146,19 @@
       <p><strong>The short version:</strong> Unbait does not collect, store, or transmit any of your data to its own servers. There are no Unbait servers. Everything stays on your device or goes directly to your chosen AI provider.</p>
     </div>
 
+    <h2>Contact</h2>
+    <p>For privacy questions, email <a href="mailto:unbait@jorgvreeswijk.nl">unbait@jorgvreeswijk.nl</a> or open an issue on <a href="https://github.com/jorgvreeswijk/unbait/issues">GitHub</a>.</p>
+
+    <h2>Data controller</h2>
+    <p>Unbait is a local browser tool. The developer does not receive, store, or process any of your data. You are the data controller for any data sent to AI providers through Unbait.</p>
+
     <h2>What Unbait does</h2>
     <p>Unbait is a browser extension that replaces clickbait headlines with informative titles. To do this, it briefly fetches the text of articles on the page you are viewing and sends that text to an AI provider to generate a better headline.</p>
     <p>On YouTube, Unbait fetches video transcripts (captions) to understand the video content. The transcript text (covering the first 1–8 minutes of the video, depending on the transcript depth setting) is sent to your AI provider along with the video title. Neutral thumbnail frames are loaded directly from YouTube's own image servers (i.ytimg.com) — no external service is involved.</p>
+    <p>If you use Unbait on YouTube, transcripts from videos you have access to (including unlisted or private videos) may be sent to your AI provider for title analysis.</p>
+
+    <h2>Legal basis for processing</h2>
+    <p>Processing is based on your explicit action (GDPR Art. 6(1)(b)) — you choose to activate Unbait and trigger each processing action. You control what data is sent and to which provider.</p>
 
     <h2>Data stored on your device</h2>
     <ul>
@@ -158,6 +168,9 @@
       <li><strong>Title cache</strong> — rewritten headlines (including YouTube titles) are cached locally for up to 7 days to avoid repeated API calls. The cache is capped at 500 entries and can be cleared manually.</li>
       <li><strong>Transcript depth setting</strong> — your preferred transcript depth (how much of a YouTube video's captions are sent to the AI provider). Stored locally alongside your other preferences.</li>
     </ul>
+
+    <h2>Gemini API key handling</h2>
+    <p>Note: Google's Gemini API requires the API key to be sent as a URL parameter rather than a header. This means the key may be visible in browser developer tools and network logs.</p>
 
     <h2>Data sent to third parties</h2>
     <p>When Unbait rewrites headlines, it sends the following directly to your chosen AI provider:</p>
@@ -174,18 +187,29 @@
       <li><a href="https://policies.google.com/privacy">Google (Gemini)</a></li>
     </ul>
 
+    <h2>International data transfers</h2>
+    <p>Anthropic and OpenAI are US-based companies. When you use these providers, article excerpts and your API key are sent to US servers. These providers operate under the EU-US Data Privacy Framework and/or Standard Contractual Clauses. Google (Gemini) processes data per their own privacy terms. Your direct relationship with the provider governs these transfers.</p>
+
     <h2>Data NOT collected</h2>
     <ul>
       <li>No analytics or tracking</li>
       <li>No user accounts or registration</li>
       <li>No browsing history (beyond the cached titles you explicitly generated)</li>
       <li>No personal information</li>
-      <li>No cookies</li>
+      <li>No cookies — Unbait does not set or use its own cookies. However, when fetching article content for context, the browser may include existing cookies for that website (same-origin requests). This is standard browser behavior.</li>
       <li>No data is ever sent to Unbait's own servers (there are none)</li>
     </ul>
 
     <h2>Permissions</h2>
     <p>Unbait uses optional host permissions. It does not request access to all websites by default. When you click "Enable for this site" or manually trigger de-clickbaiting, the extension requests permission for that specific site only.</p>
+
+    <h2>Your rights</h2>
+    <p>Under the GDPR, you have the right to access, rectify, and erase your data (Art. 15–17), as well as the right to data portability (Art. 20).</p>
+    <ul>
+      <li><strong>Locally stored data</strong> — you have full control via the extension settings. You can clear the cache and delete your API key at any time.</li>
+      <li><strong>Data processed by AI providers</strong> — contact your provider directly using the links above.</li>
+    </ul>
+    <p>You have the right to lodge a complaint with the Dutch Data Protection Authority (Autoriteit Persoonsgegevens, <a href="https://autoriteitpersoonsgegevens.nl">autoriteitpersoonsgegevens.nl</a>).</p>
 
     <h2>Open source</h2>
     <p>Unbait is fully open source. You can inspect the complete source code at <a href="https://github.com/jorgvreeswijk/unbait">github.com/jorgvreeswijk/unbait</a> to verify these claims.</p>
@@ -193,8 +217,6 @@
     <h2>Changes to this policy</h2>
     <p>If this policy changes, the updated version will be published at this URL. The extension itself does not auto-update this policy.</p>
 
-    <h2>Contact</h2>
-    <p>For questions about this privacy policy, open an issue on <a href="https://github.com/jorgvreeswijk/unbait/issues">GitHub</a>.</p>
   </main>
 
   <footer>

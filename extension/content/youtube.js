@@ -311,7 +311,7 @@ function extractVideoId(url) {
 
 async function fetchTranscript(videoId) {
   try {
-    const resp = await fetch(`https://www.youtube.com/watch?v=${videoId}`);
+    const resp = await fetch(`https://www.youtube.com/watch?v=${videoId}`, { credentials: "omit", referrer: "" });
     if (!resp.ok) return null;
     const html = await resp.text();
 
@@ -342,7 +342,7 @@ async function fetchTranscript(videoId) {
       tracks[0];
 
     // Fetch transcript
-    const captionResp = await fetch(preferred.baseUrl + "&fmt=json3");
+    const captionResp = await fetch(preferred.baseUrl + "&fmt=json3", { credentials: "omit", referrer: "" });
     if (!captionResp.ok) return null;
     const captionData = await captionResp.json();
 
