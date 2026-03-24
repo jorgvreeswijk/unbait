@@ -419,7 +419,7 @@ function replaceThumbnail(videoId, container) {
 // ---------------------------------------------------------------------------
 
 function renderReplacedHeadline(el, newTitle, originalText) {
-  // DeArrow-inspired approach: DON'T modify YouTube's elements.
+  // Dual-element approach: DON'T modify YouTube's elements.
   // Instead, create a NEW element and HIDE the original with CSS.
   // This prevents YouTube's data-binding from overriding our changes.
 
