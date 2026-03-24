@@ -91,11 +91,15 @@ function updateYTToggleState() {
   const titlesOn = document.getElementById('yt-titles-toggle').checked;
   const sliderContainer = document.getElementById('yt-slider-container');
   const icon = document.getElementById('yt-toggle-icon');
+  const label = document.querySelector('.yt-main-toggle span');
   if (sliderContainer) {
     sliderContainer.classList.toggle('hidden', !titlesOn);
   }
   if (icon) {
     icon.setAttribute('stroke', titlesOn ? '#0d9488' : '#9ca3af');
+  }
+  if (label) {
+    label.style.color = titlesOn ? '#374151' : '#9ca3af';
   }
 }
 
