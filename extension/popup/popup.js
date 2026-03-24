@@ -533,6 +533,12 @@ btnToggleSite.addEventListener("click", async () => {
     if (!granted) return;
     sites.push(_currentHostname);
     await saveAutoSites(sites);
+
+    // Immediately trigger de-clickbait on the current tab
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id) {
+      chrome.runtime.sendMessage({ action: "trigger-declickbait", tabId: tab.id });
+    }
   }
 
   updateSiteToggle();

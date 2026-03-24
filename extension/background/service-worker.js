@@ -11,6 +11,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
+  if (message.action === "trigger-declickbait") {
+    // Immediately inject and de-clickbait a tab (used by Always On enable)
+    const tabId = message.tabId;
+    if (!tabId) return;
+    chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["content/content.js"],
+    }).then(() => {
+      chrome.scripting.insertCSS({
+        target: { tabId },
+        files: ["content/content.css"],
+      });
+      setTimeout(() => {
+        chrome.tabs.sendMessage(tabId, { action: "de-clickbait" }).catch(() => {});
+      }, CONFIG.AUTO_TRIGGER_DELAY_MS);
+    }).catch(() => {});
+    return;
+  }
+
   if (message.action === "rewrite-headlines") {
     const tabId = sender.tab?.id;
     _tabStatus.set(tabId, { state: "working", text: "Scanning headlines..." });
