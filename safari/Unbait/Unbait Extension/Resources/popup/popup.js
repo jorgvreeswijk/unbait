@@ -79,29 +79,28 @@ if (btnBeer) {
 chrome.storage.local.get(['youtubeEnabled', 'youtubeThumbnails'], (data) => {
   document.getElementById('yt-titles-toggle').checked = !!data.youtubeEnabled;
   document.getElementById('yt-thumbnails-toggle').checked = !!data.youtubeThumbnails;
-  // Show warning if thumbnails enabled
-  document.getElementById('yt-warning').classList.toggle('hidden', !data.youtubeThumbnails);
 });
 
 // YouTube toggle handlers
 document.getElementById('yt-titles-toggle').addEventListener('change', (e) => {
   chrome.storage.local.set({ youtubeEnabled: e.target.checked });
-  // If disabling titles, also disable thumbnails
   if (!e.target.checked) {
     document.getElementById('yt-thumbnails-toggle').checked = false;
     chrome.storage.local.set({ youtubeThumbnails: false });
-    document.getElementById('yt-warning').classList.add('hidden');
   }
 });
 
 document.getElementById('yt-thumbnails-toggle').addEventListener('change', (e) => {
   chrome.storage.local.set({ youtubeThumbnails: e.target.checked });
-  document.getElementById('yt-warning').classList.toggle('hidden', !e.target.checked);
-  // If enabling thumbnails, also enable titles
   if (e.target.checked) {
     document.getElementById('yt-titles-toggle').checked = true;
     chrome.storage.local.set({ youtubeEnabled: true });
   }
+});
+
+// YouTube info panel toggle
+document.getElementById('btn-yt-info').addEventListener('click', () => {
+  document.getElementById('yt-info-panel').classList.toggle('hidden');
 });
 
 // Load saved provider + API key on popup open
