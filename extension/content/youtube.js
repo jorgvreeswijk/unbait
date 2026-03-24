@@ -794,12 +794,11 @@ function startObserving() {
       _ytIsProcessing = true;
       processYouTubeTitles()
         .then(() => {
-            _ytIsProcessing = false;
-          })
-          .catch(() => {
-            _ytIsProcessing = false;
-          });
-      }
+          _ytIsProcessing = false;
+        })
+        .catch(() => {
+          _ytIsProcessing = false;
+        });
     }, YT_CONFIG.OBSERVER_DEBOUNCE_MS);
   });
 
