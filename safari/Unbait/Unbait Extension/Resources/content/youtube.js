@@ -569,17 +569,26 @@ function toggleTitle(el, icon) {
   const originalSpan = el.querySelector(".unbait-original-hidden");
   const isShowingOriginal = icon.classList.contains("showing-original");
 
+  // Also toggle thumbnail if it was replaced
+  const renderer = el.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer");
+  const neutralThumb = renderer?.querySelector(".unbait-thumb-replaced");
+  const originalThumb = renderer?.querySelector(".unbait-thumb-original");
+
   if (isShowingOriginal) {
-    // Show unbait title
+    // Show unbait title + neutral thumbnail
     if (customTitle) customTitle.style.display = "inline";
     if (originalSpan) originalSpan.style.display = "none";
+    if (neutralThumb) neutralThumb.style.display = "";
+    if (originalThumb) originalThumb.style.display = "none";
     el.title = `Original: ${el.dataset.unbaitOriginal}`;
     icon.title = "Click to show original";
     icon.classList.remove("showing-original");
   } else {
-    // Show original
+    // Show original title + original thumbnail
     if (customTitle) customTitle.style.display = "none";
     if (originalSpan) originalSpan.style.display = "";
+    if (neutralThumb) neutralThumb.style.display = "none";
+    if (originalThumb) originalThumb.style.display = "";
     el.title = `Unbait: ${el.dataset.unbaitNew}`;
     icon.title = "Click to show Unbait title";
     icon.classList.add("showing-original");
