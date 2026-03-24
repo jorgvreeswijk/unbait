@@ -538,26 +538,28 @@ btnToggleSite.addEventListener("click", async () => {
       if (ytCheckbox) ytCheckbox.checked = false;
     }
   } else {
-    // Enable: request permission first, only add if granted
+    // Get the tab BEFORE the permission dialog (which may close the popup)
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    // Request permission — this may close the popup!
     const granted = await requestSitePermission(_currentHostname);
     if (!granted) return;
+
+    // Everything below may run in a "dying" popup context — that's OK,
+    // storage writes and runtime messages still work even after popup closes.
     sites.push(_currentHostname);
     await saveAutoSites(sites);
 
     // If enabling YouTube, also enable YouTube titles
     if (isYouTube) {
-      chrome.storage.local.set({ youtubeEnabled: true });
+      await chrome.storage.local.set({ youtubeEnabled: true });
       const ytCheckbox = document.getElementById("yt-rewrite");
       if (ytCheckbox) ytCheckbox.checked = true;
     }
 
-    // Immediately trigger de-clickbait on the current tab
-    // Use a small delay to ensure storage writes are complete before triggering
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    // Trigger de-clickbait on the current tab
     if (tab?.id) {
-      setTimeout(() => {
-        chrome.runtime.sendMessage({ action: "trigger-declickbait", tabId: tab.id }).catch(() => {});
-      }, 300);
+      chrome.runtime.sendMessage({ action: "trigger-declickbait", tabId: tab.id }).catch(() => {});
     }
   }
 
