@@ -498,10 +498,32 @@ hr {
   transition: opacity 0.2s;
   display: flex;
   align-items: center;
+  position: relative;
 }
 
 .footer-icon:hover {
   opacity: 0.75;
+}
+
+.footer-icon .tooltip {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #374151;
+  color: white;
+  font-size: 0.65rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  margin-bottom: 4px;
+}
+
+.footer-icon:hover .tooltip,
+.footer-icon .tooltip.show {
+  display: block;
 }
 
 /* YouTube main toggle */

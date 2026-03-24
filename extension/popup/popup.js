@@ -77,17 +77,13 @@ if (btnBeer) {
 
 // Share button — copy message to clipboard
 const btnShare = document.getElementById("btn-share");
+const shareTooltip = document.getElementById("share-tooltip");
 if (btnShare) {
-  btnShare.addEventListener("mouseenter", () => { btnShare.style.opacity = "0.75"; });
-  btnShare.addEventListener("mouseleave", () => { btnShare.style.opacity = "0.35"; });
   btnShare.addEventListener("click", async () => {
-    const msg = "Unbait — See what articles are really about. Replaces clickbait headlines with clear, informative titles using AI. Try it: https://unbait.link";
+    const msg = "Unbait - See what articles are really about. Replaces clickbait headlines with clear, informative titles using AI. Try it: https://unbait.link";
     try {
       await navigator.clipboard.writeText(msg);
-      btnShare.title = "Copied!";
-      setTimeout(() => { btnShare.title = "Share Unbait"; }, 2000);
     } catch {
-      // Fallback for browsers that don't support clipboard API in popups
       const ta = document.createElement("textarea");
       ta.value = msg;
       ta.style.position = "fixed";
@@ -96,8 +92,14 @@ if (btnShare) {
       ta.select();
       document.execCommand("copy");
       document.body.removeChild(ta);
-      btnShare.title = "Copied!";
-      setTimeout(() => { btnShare.title = "Share Unbait"; }, 2000);
+    }
+    if (shareTooltip) {
+      shareTooltip.textContent = "Copied!";
+      shareTooltip.classList.add("show");
+      setTimeout(() => {
+        shareTooltip.textContent = "Share";
+        shareTooltip.classList.remove("show");
+      }, 2000);
     }
   });
 }
