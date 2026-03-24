@@ -509,8 +509,7 @@ hr {
   display: none;
   position: absolute;
   bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 0;
   background: #374151;
   color: white;
   font-size: 0.65rem;

@@ -94,7 +94,7 @@ if (btnShare) {
       document.body.removeChild(ta);
     }
     if (shareTooltip) {
-      shareTooltip.textContent = "Copied!";
+      shareTooltip.textContent = "Copied! Now share it";
       shareTooltip.classList.add("show");
       setTimeout(() => {
         shareTooltip.textContent = "Share";
