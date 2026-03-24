@@ -1,26 +1,57 @@
 // Track active job status per tab
 const _tabStatus = new Map();
 
-// Dynamic icon helper: generate icon with status overlay
+// Generate a dynamic icon: teal circle with text (replaces entire icon)
+function generateIcon(text, bgColor) {
+  const size = 128;
+  const canvas = new OffscreenCanvas(size, size);
+  const ctx = canvas.getContext("2d");
+
+  // Draw teal circle
+  ctx.fillStyle = bgColor || "#0d9488";
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Draw text
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  if (text.length <= 2) {
+    ctx.font = `bold ${size * 0.55}px -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif`;
+  } else {
+    ctx.font = `bold ${size * 0.35}px -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif`;
+  }
+  ctx.fillText(text, size / 2, size / 2 + 2);
+
+  return ctx.getImageData(0, 0, size, size);
+}
+
 function updateBadge(tabId, state, count) {
   try {
+    // Clear any badge text (we use full icon replacement instead)
+    chrome.action.setBadgeText({ text: "", tabId });
+
     if (state === "working") {
-      chrome.action.setBadgeText({ text: "···", tabId });
-      chrome.action.setBadgeBackgroundColor({ color: "#0d9488", tabId });
-      chrome.action.setBadgeTextColor({ color: "#ffffff", tabId });
+      const imageData = generateIcon("···", "#0d9488");
+      chrome.action.setIcon({ imageData, tabId });
     } else if (state === "done") {
-      chrome.action.setBadgeText({ text: count > 0 ? String(count) : "\u2713", tabId });
-      chrome.action.setBadgeBackgroundColor({ color: "#0d9488", tabId });
-      chrome.action.setBadgeTextColor({ color: "#ffffff", tabId });
+      const text = count > 0 ? String(count) : "\u2713";
+      const imageData = generateIcon(text, "#0d9488");
+      chrome.action.setIcon({ imageData, tabId });
     } else if (state === "error") {
-      chrome.action.setBadgeText({ text: "!", tabId });
-      chrome.action.setBadgeBackgroundColor({ color: "#ef4444", tabId });
-      chrome.action.setBadgeTextColor({ color: "#ffffff", tabId });
+      const imageData = generateIcon("!", "#ef4444");
+      chrome.action.setIcon({ imageData, tabId });
     } else {
-      chrome.action.setBadgeText({ text: "", tabId });
+      // Reset to default U icon
+      chrome.action.setIcon({
+        path: { 16: "icons/icon-16.png", 48: "icons/icon-48.png", 128: "icons/icon-128.png" },
+        tabId,
+      });
     }
   } catch {
-    // Badge API may not be available in all contexts
+    // Icon API may not be available in all contexts
   }
 }
 
@@ -50,8 +81,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (isYT) {
         await chrome.storage.local.set({ youtubeEnabled: true });
       }
-      // Trigger de-clickbait
+      // Show working badge immediately and trigger de-clickbait
       if (tabId) {
+        updateBadge(tabId, "working");
         chrome.runtime.sendMessage({ action: "trigger-declickbait", tabId }).catch(() => {});
       }
     });
