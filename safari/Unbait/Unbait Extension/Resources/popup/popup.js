@@ -522,17 +522,34 @@ btnToggleSite.addEventListener("click", async () => {
   const sites = await getAutoSites();
   const index = sites.indexOf(_currentHostname);
 
+  const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
+  const isYouTube = YT_HOSTS.includes(_currentHostname);
+
   if (index >= 0) {
     // Disable: remove from list and revoke permission
     sites.splice(index, 1);
     await saveAutoSites(sites);
     await removeSitePermission(_currentHostname);
+
+    // If disabling YouTube, also disable YouTube titles
+    if (isYouTube) {
+      chrome.storage.local.set({ youtubeEnabled: false });
+      const ytCheckbox = document.getElementById("yt-rewrite");
+      if (ytCheckbox) ytCheckbox.checked = false;
+    }
   } else {
     // Enable: request permission first, only add if granted
     const granted = await requestSitePermission(_currentHostname);
     if (!granted) return;
     sites.push(_currentHostname);
     await saveAutoSites(sites);
+
+    // If enabling YouTube, also enable YouTube titles
+    if (isYouTube) {
+      chrome.storage.local.set({ youtubeEnabled: true });
+      const ytCheckbox = document.getElementById("yt-rewrite");
+      if (ytCheckbox) ytCheckbox.checked = true;
+    }
 
     // Immediately trigger de-clickbait on the current tab
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

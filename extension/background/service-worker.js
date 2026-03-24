@@ -15,17 +15,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Immediately inject and de-clickbait a tab (used by Always On enable)
     const tabId = message.tabId;
     if (!tabId) return;
-    chrome.scripting.executeScript({
-      target: { tabId },
-      files: ["content/content.js"],
-    }).then(() => {
-      chrome.scripting.insertCSS({
-        target: { tabId },
-        files: ["content/content.css"],
-      });
-      setTimeout(() => {
-        chrome.tabs.sendMessage(tabId, { action: "de-clickbait" }).catch(() => {});
-      }, CONFIG.AUTO_TRIGGER_DELAY_MS);
+
+    // Detect YouTube to use the correct flow
+    const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
+    chrome.tabs.get(tabId).then((tab) => {
+      let isYouTube = false;
+      try { isYouTube = YT_HOSTS.includes(new URL(tab.url).hostname); } catch {}
+
+      if (isYouTube) {
+        // YouTube flow: inject youtube.js + youtube CSS
+        chrome.scripting.executeScript({
+          target: { tabId },
+          files: ["content/youtube.js"],
+        }).then(() => {
+          chrome.scripting.insertCSS({
+            target: { tabId },
+            files: ["content/content.css"],
+          });
+          setTimeout(() => {
+            chrome.tabs.sendMessage(tabId, { action: "de-clickbait-youtube" }).catch(() => {});
+          }, CONFIG.AUTO_TRIGGER_DELAY_MS);
+        }).catch(() => {});
+      } else {
+        // Regular news site flow
+        chrome.scripting.executeScript({
+          target: { tabId },
+          files: ["content/content.js"],
+        }).then(() => {
+          chrome.scripting.insertCSS({
+            target: { tabId },
+            files: ["content/content.css"],
+          });
+          setTimeout(() => {
+            chrome.tabs.sendMessage(tabId, { action: "de-clickbait" }).catch(() => {});
+          }, CONFIG.AUTO_TRIGGER_DELAY_MS);
+        }).catch(() => {});
+      }
     }).catch(() => {});
     return;
   }
@@ -150,6 +175,10 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
       if (!isAlwaysOn && !hasCachedEntries) return;
 
+      // Skip content.js for YouTube — it uses youtube.js (handled separately below)
+      const YT_HOSTS_CHECK = ["www.youtube.com", "youtube.com", "m.youtube.com"];
+      if (YT_HOSTS_CHECK.includes(hostname)) return;
+
       // Inject content script + CSS
       // The content script auto-restores cached titles on load
       chrome.scripting.executeScript({
@@ -170,18 +199,30 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       }).catch((e) => console.debug("[Unbait] Auto-inject failed:", e.message));
     });
 
-    // YouTube support: inject youtube.js if enabled
-    if (hostname === 'www.youtube.com') {
-      chrome.storage.local.get('youtubeEnabled').then(data => {
-        if (data.youtubeEnabled) {
+    // YouTube support: inject youtube.js if youtubeEnabled OR Always On for YouTube
+    const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
+    if (YT_HOSTS.includes(hostname)) {
+      Promise.all([
+        chrome.storage.local.get("youtubeEnabled"),
+        chrome.storage.sync.get("autoSites"),
+      ]).then(([ytData, syncData]) => {
+        const autoSites = syncData.autoSites || [];
+        const isYTAlwaysOn = autoSites.some((s) => YT_HOSTS.includes(s));
+        if (ytData.youtubeEnabled || isYTAlwaysOn) {
           chrome.scripting.executeScript({
             target: { tabId },
-            files: ['content/youtube.js'],
+            files: ["content/youtube.js"],
           }).then(() => {
             chrome.scripting.insertCSS({
               target: { tabId },
-              files: ['content/content.css'],
+              files: ["content/content.css"],
             });
+            // Auto-trigger if Always On
+            if (isYTAlwaysOn) {
+              setTimeout(() => {
+                chrome.tabs.sendMessage(tabId, { action: "de-clickbait-youtube" }).catch(() => {});
+              }, CONFIG.AUTO_TRIGGER_DELAY_MS);
+            }
           }).catch(() => {});
         }
       });
