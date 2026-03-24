@@ -512,16 +512,21 @@ hr {
   color: #1f2937;
 }
 
-.yt-badge {
-  font-size: 0.65rem;
-  font-weight: 600;
+.btn-info-inline {
+  background: none;
+  border: none;
+  cursor: pointer;
   color: #0d9488;
-  background: #ccfbf1;
-  padding: 1px 6px;
-  border-radius: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.5;
+  transition: opacity 0.2s;
   margin-left: auto;
+}
+
+.btn-info-inline:hover {
+  opacity: 1;
 }
 
 .yt-toggles {
