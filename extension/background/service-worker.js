@@ -1,6 +1,26 @@
 // Track active job status per tab
 const _tabStatus = new Map();
 
+// Badge helper: show status on extension icon per tab
+function updateBadge(tabId, state, count) {
+  try {
+    if (state === "working") {
+      chrome.action.setBadgeText({ text: "...", tabId });
+      chrome.action.setBadgeBackgroundColor({ color: "#0d9488", tabId });
+    } else if (state === "done") {
+      chrome.action.setBadgeText({ text: count > 0 ? String(count) : "\u2713", tabId });
+      chrome.action.setBadgeBackgroundColor({ color: "#0d9488", tabId });
+    } else if (state === "error") {
+      chrome.action.setBadgeText({ text: "!", tabId });
+      chrome.action.setBadgeBackgroundColor({ color: "#ef4444", tabId });
+    } else {
+      chrome.action.setBadgeText({ text: "", tabId });
+    }
+  } catch {
+    // Badge API may not be available in all contexts
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Verify sender is from our own extension or a valid tab
   if (sender.id !== chrome.runtime.id) return;
@@ -11,10 +31,53 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
+  if (message.action === "enable-site") {
+    // Service worker handles site enable to survive popup closing
+    const { hostname, tabId } = message;
+    if (!hostname) return;
+    const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
+    const isYT = YT_HOSTS.includes(hostname);
+
+    chrome.storage.sync.get("autoSites").then(async (data) => {
+      const sites = data.autoSites || [];
+      if (!sites.includes(hostname)) {
+        sites.push(hostname);
+        await chrome.storage.sync.set({ autoSites: sites });
+      }
+      if (isYT) {
+        await chrome.storage.local.set({ youtubeEnabled: true });
+      }
+      // Trigger de-clickbait
+      if (tabId) {
+        chrome.runtime.sendMessage({ action: "trigger-declickbait", tabId }).catch(() => {});
+      }
+    });
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  if (message.action === "disable-site") {
+    const { hostname } = message;
+    if (!hostname) return;
+    const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
+    const isYT = YT_HOSTS.includes(hostname);
+
+    chrome.storage.sync.get("autoSites").then(async (data) => {
+      const sites = (data.autoSites || []).filter((s) => s !== hostname);
+      await chrome.storage.sync.set({ autoSites: sites });
+      if (isYT) {
+        await chrome.storage.local.set({ youtubeEnabled: false });
+      }
+    });
+    sendResponse({ ok: true });
+    return true;
+  }
+
   if (message.action === "trigger-declickbait") {
     // Immediately inject and de-clickbait a tab (used by Always On enable)
     const tabId = message.tabId;
     if (!tabId) return;
+    updateBadge(tabId, "working");
 
     // Detect YouTube to use the correct flow
     const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
@@ -58,6 +121,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "rewrite-headlines") {
     const tabId = sender.tab?.id;
     _tabStatus.set(tabId, { state: "working", text: "Scanning headlines..." });
+    updateBadge(tabId, "working");
 
     // Respond immediately to avoid Safari killing the message channel
     sendResponse({ accepted: true });
@@ -65,15 +129,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleRewrite(message.headlines, tabId).then((result) => {
       if (result && result.error) {
         _tabStatus.set(tabId, { state: "error", text: result.error });
+        updateBadge(tabId, "error");
       } else if (result && result.results) {
+        const count = result.results.filter((r) => r.newTitle).length;
         _tabStatus.set(tabId, {
           state: "done",
           text: "Done!",
           found: message.headlines.length,
-          count: result.results.filter((r) => r.newTitle).length,
+          count,
         });
+        updateBadge(tabId, "done", count);
       } else {
         _tabStatus.delete(tabId);
+        updateBadge(tabId, "clear");
       }
       // Send final result via tabs.sendMessage (survives SW lifecycle)
       if (tabId) {
@@ -90,17 +158,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "rewrite-youtube-titles") {
     const tabId = sender.tab?.id;
     _tabStatus.set(tabId, { state: "working", text: "Processing YouTube titles..." });
+    updateBadge(tabId, "working");
     sendResponse({ accepted: true });
 
     handleRewrite(message.headlines, tabId, "youtube").then((result) => {
       if (result && result.error) {
         _tabStatus.set(tabId, { state: "error", text: result.error });
+        updateBadge(tabId, "error");
       } else if (result && result.results) {
+        const count = result.results.filter((r) => r.newTitle).length;
         _tabStatus.set(tabId, {
           state: "done", text: "Done!",
           found: message.headlines.length,
-          count: result.results.filter((r) => r.newTitle).length,
+          count,
         });
+        updateBadge(tabId, "done", count);
       }
       if (tabId) {
         chrome.tabs.sendMessage(tabId, {
@@ -144,6 +216,11 @@ const CONFIG = {
 // Always On: auto-trigger on page load for configured sites
 // Also: inject content script for cache restore on any previously de-clickbaited site
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  // Clear badge when navigating to a new page
+  if (changeInfo.status === "loading") {
+    updateBadge(tabId, "clear");
+    _tabStatus.delete(tabId);
+  }
   if (changeInfo.status !== "complete" || !tab.url) return;
 
   try {

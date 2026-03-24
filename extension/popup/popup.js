@@ -526,14 +526,12 @@ btnToggleSite.addEventListener("click", async () => {
   const isYouTube = YT_HOSTS.includes(_currentHostname);
 
   if (index >= 0) {
-    // Disable: remove from list and revoke permission
-    sites.splice(index, 1);
-    await saveAutoSites(sites);
+    // Disable: delegate to service worker (survives popup closing)
+    chrome.runtime.sendMessage({ action: "disable-site", hostname: _currentHostname }).catch(() => {});
     await removeSitePermission(_currentHostname);
 
-    // If disabling YouTube, also disable YouTube titles
+    // Update UI immediately
     if (isYouTube) {
-      chrome.storage.local.set({ youtubeEnabled: false });
       const ytCheckbox = document.getElementById("yt-rewrite");
       if (ytCheckbox) ytCheckbox.checked = false;
     }
@@ -545,21 +543,17 @@ btnToggleSite.addEventListener("click", async () => {
     const granted = await requestSitePermission(_currentHostname);
     if (!granted) return;
 
-    // Everything below may run in a "dying" popup context — that's OK,
-    // storage writes and runtime messages still work even after popup closes.
-    sites.push(_currentHostname);
-    await saveAutoSites(sites);
+    // Delegate to service worker — this survives popup closing
+    chrome.runtime.sendMessage({
+      action: "enable-site",
+      hostname: _currentHostname,
+      tabId: tab?.id,
+    }).catch(() => {});
 
-    // If enabling YouTube, also enable YouTube titles
+    // Update UI immediately (best effort, popup may already be closing)
     if (isYouTube) {
-      await chrome.storage.local.set({ youtubeEnabled: true });
       const ytCheckbox = document.getElementById("yt-rewrite");
       if (ytCheckbox) ytCheckbox.checked = true;
-    }
-
-    // Trigger de-clickbait on the current tab
-    if (tab?.id) {
-      chrome.runtime.sendMessage({ action: "trigger-declickbait", tabId: tab.id }).catch(() => {});
     }
   }
 
