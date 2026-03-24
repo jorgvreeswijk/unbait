@@ -34,7 +34,8 @@ const YT_CONFIG = {
   TRANSCRIPT_MAX_TIME_MS: 120000, // first ~2 minutes of captions
   DESCRIPTION_MAX_CHARS: 500,
   MIN_TITLE_LENGTH: 5,
-  OBSERVER_DEBOUNCE_MS: 800,
+  OBSERVER_DEBOUNCE_MS: 400,
+  SCROLL_AHEAD_PX: 1500, // pre-fetch titles this far below the viewport
 };
 
 // ---------------------------------------------------------------------------
@@ -846,36 +847,40 @@ let _ytObserverDebounce = null;
 function startObserving() {
   if (_ytObserver) return;
 
-  _ytObserver = new MutationObserver((mutations) => {
+  const processNewTitles = () => {
+    if (_ytIsProcessing) return;
+
+    const titles = findYouTubeTitles();
+    const newTitles = titles.filter((t) => {
+      const vid = t.videoId;
+      return vid && !_ytApplied.has(`yt-${vid}`) && !_ytElements.has(`yt-${vid}`);
+    });
+
+    if (newTitles.length === 0) return;
+
+    console.debug(`[Unbait YT] ${newTitles.length} new titles detected`);
+    _ytIsProcessing = true;
+    processYouTubeTitles()
+      .then(() => { _ytIsProcessing = false; })
+      .catch(() => { _ytIsProcessing = false; });
+  };
+
+  // MutationObserver for new DOM elements (YouTube SPA navigation)
+  _ytObserver = new MutationObserver(() => {
     if (_ytObserverDebounce) clearTimeout(_ytObserverDebounce);
-    _ytObserverDebounce = setTimeout(() => {
-      if (_ytIsProcessing) return;
-
-      // Only process if genuinely new video renderers appeared
-      // (not our own DOM changes or YouTube re-rendering existing ones)
-      const titles = findYouTubeTitles();
-      const newTitles = titles.filter((t) => {
-        // Skip if we already processed this video ID
-        const vid = t.videoId;
-        return vid && !_ytApplied.has(`yt-${vid}`) && !_ytElements.has(`yt-${vid}`);
-      });
-
-      if (newTitles.length === 0) return;
-
-      console.debug(`[Unbait YT] ${newTitles.length} new titles from scroll`);
-      _ytIsProcessing = true;
-      processYouTubeTitles()
-        .then(() => {
-          _ytIsProcessing = false;
-        })
-        .catch(() => {
-          _ytIsProcessing = false;
-        });
-    }, YT_CONFIG.OBSERVER_DEBOUNCE_MS);
+    _ytObserverDebounce = setTimeout(processNewTitles, YT_CONFIG.OBSERVER_DEBOUNCE_MS);
   });
 
   _ytObserver.observe(document.body, { childList: true, subtree: true });
-  console.debug("[Unbait YT] MutationObserver started");
+
+  // Scroll listener to pre-fetch titles ahead of the viewport
+  let _scrollDebounce = null;
+  window.addEventListener("scroll", () => {
+    if (_scrollDebounce) clearTimeout(_scrollDebounce);
+    _scrollDebounce = setTimeout(processNewTitles, 300);
+  }, { passive: true });
+
+  console.debug("[Unbait YT] Observer + scroll listener started");
 }
 
 function stopObserving() {

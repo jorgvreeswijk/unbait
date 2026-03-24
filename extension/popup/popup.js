@@ -552,9 +552,12 @@ btnToggleSite.addEventListener("click", async () => {
     }
 
     // Immediately trigger de-clickbait on the current tab
+    // Use a small delay to ensure storage writes are complete before triggering
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab?.id) {
-      chrome.runtime.sendMessage({ action: "trigger-declickbait", tabId: tab.id });
+      setTimeout(() => {
+        chrome.runtime.sendMessage({ action: "trigger-declickbait", tabId: tab.id }).catch(() => {});
+      }, 300);
     }
   }
 
