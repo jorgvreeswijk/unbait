@@ -17,6 +17,7 @@ window.__unbaitYouTubeLoaded = true;
 
 let _ytIsProcessing = false;
 let _ytRewriteResolve = null;
+let _ytReplaceThumbnails = false;
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -489,6 +490,43 @@ function renderReplacedHeadline(el, newTitle, originalText) {
   el.parentNode.insertBefore(icon, el.nextSibling);
 }
 
+/**
+ * Replace a clickbait thumbnail with a neutral video frame.
+ * YouTube auto-generates frames at 25%/50%/75% of the video:
+ * - 1.jpg = 25%, 2.jpg = 50%, 3.jpg = 75%
+ * These are neutral frames, not the custom clickbait thumbnail.
+ * Cost: 0 extra tokens — just a URL swap.
+ */
+function replaceThumbnail(el, videoId) {
+  if (!_ytReplaceThumbnails || !videoId) return;
+
+  const renderer = el.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer");
+  if (!renderer) return;
+
+  // Find the thumbnail image
+  const thumbContainer = renderer.querySelector("ytd-thumbnail, .ytd-thumbnail, yt-thumbnail-view-model");
+  if (!thumbContainer) return;
+
+  const img = thumbContainer.querySelector("img");
+  if (!img || img.classList.contains("unbait-thumb-replaced")) return;
+
+  // Neutral frame URL (50% of the video)
+  const neutralUrl = `https://i.ytimg.com/vi/${videoId}/2.jpg`;
+
+  // Hide original img, insert new one
+  img.style.display = "none";
+  img.classList.add("unbait-thumb-original");
+
+  const newImg = document.createElement("img");
+  newImg.src = neutralUrl;
+  newImg.className = "unbait-thumb-replaced";
+  newImg.style.cssText = "width: 100%; height: 100%; object-fit: cover; border-radius: inherit;";
+  newImg.alt = img.alt || "";
+  newImg.loading = "lazy";
+
+  img.parentNode.insertBefore(newImg, img);
+}
+
 function applyResult(result) {
   if (_ytApplied.has(result.id)) return false;
   _ytApplied.add(result.id);
@@ -503,6 +541,10 @@ function applyResult(result) {
 
   const originalText = el.dataset.unbaitOriginal || el.textContent;
   renderReplacedHeadline(el, result.newTitle, originalText);
+
+  // Replace thumbnail if enabled (only for videos that were de-clickbaited)
+  const videoId = el.dataset.unbaitVideoId;
+  replaceThumbnail(el, videoId);
 
   return true;
 }
@@ -683,6 +725,12 @@ async function fetchAndApplyResults(
 window.__unbaitYTProcess = processYouTubeTitles;
 
 async function processYouTubeTitles() {
+  // Read thumbnail setting
+  try {
+    const stored = await chrome.storage.local.get("youtubeThumbnails");
+    _ytReplaceThumbnails = !!stored.youtubeThumbnails;
+  } catch { _ytReplaceThumbnails = false; }
+
   // YouTube loads content dynamically — wait for titles to appear
   let titles = findYouTubeTitles();
   if (titles.length === 0) {
