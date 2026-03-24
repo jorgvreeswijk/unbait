@@ -147,11 +147,8 @@
       </div>
       <!-- YouTube Settings panel (gear icon) -->
       <div id="yt-settings-panel" class="hidden" style="margin-top: 0.5rem; padding: 0.5rem; background: #f9fafb; border-radius: 6px; border: 1px solid #e5e7eb;">
-        <label class="yt-toggle-label" style="margin-bottom: 0.5rem;">
-          <input type="checkbox" id="yt-thumbnails-toggle" class="yt-checkbox">
-          <span>Neutral thumbnails</span>
-        </label>
-        <div id="yt-slider-container" class="hidden" style="padding: 0 0.15rem;">
+        <div id="yt-slider-container" class="hidden" style="padding: 0 0.15rem; margin-bottom: 0.5rem;">
+          <div style="font-size: 0.7rem; color: #374151; font-weight: 600; margin-bottom: 0.35rem;">Title rewriting</div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
             <span style="font-size: 0.7rem; color: #9ca3af;">Fast</span>
             <span style="font-size: 0.7rem; color: #6b7280; font-weight: 500;">Transcript depth</span>
@@ -159,6 +156,13 @@
           </div>
           <input type="range" id="yt-transcript-slider" min="1" max="4" value="2" step="1" class="yt-slider">
           <div id="yt-slider-label" style="text-align: center; font-size: 0.7rem; color: #6b7280; margin-top: 0.15rem;">Recommended balance</div>
+        </div>
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 0.5rem;">
+          <div style="font-size: 0.7rem; color: #374151; font-weight: 600; margin-bottom: 0.3rem;">Thumbnails</div>
+          <label class="yt-toggle-label">
+            <input type="checkbox" id="yt-thumbnails-toggle" class="yt-checkbox">
+            <span>Replace with neutral frame</span>
+          </label>
         </div>
       </div>
       <div id="yt-info-panel" class="info-panel hidden" style="margin-top: 0.5rem; font-size: 0.8rem;">
