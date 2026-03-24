@@ -87,11 +87,15 @@ function updateSliderLabel(value) {
   document.getElementById('yt-slider-label').innerHTML = SLIDER_LABELS[value] || '';
 }
 
-function updateSliderVisibility() {
+function updateYTToggleState() {
   const titlesOn = document.getElementById('yt-titles-toggle').checked;
   const sliderContainer = document.getElementById('yt-slider-container');
+  const icon = document.getElementById('yt-toggle-icon');
   if (sliderContainer) {
     sliderContainer.classList.toggle('hidden', !titlesOn);
+  }
+  if (icon) {
+    icon.setAttribute('stroke', titlesOn ? '#0d9488' : '#9ca3af');
   }
 }
 
@@ -103,7 +107,7 @@ chrome.storage.local.get(['youtubeEnabled', 'youtubeThumbnails', 'ytTranscriptDe
     slider.value = data.ytTranscriptDepth || 2;
     updateSliderLabel(slider.value);
   }
-  updateSliderVisibility();
+  updateYTToggleState();
 });
 
 // YouTube transcript slider
@@ -116,7 +120,7 @@ document.getElementById('yt-transcript-slider')?.addEventListener('input', (e) =
 // YouTube toggle handlers
 document.getElementById('yt-titles-toggle').addEventListener('change', (e) => {
   chrome.storage.local.set({ youtubeEnabled: e.target.checked });
-  updateSliderVisibility();
+  updateYTToggleState();
   if (!e.target.checked) {
     document.getElementById('yt-thumbnails-toggle').checked = false;
     chrome.storage.local.set({ youtubeThumbnails: false });

@@ -504,6 +504,22 @@ hr {
   opacity: 0.75;
 }
 
+/* YouTube main toggle */
+.yt-main-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #374151;
+  user-select: none;
+}
+
+.yt-main-toggle span {
+  font-size: 0.9rem;
+}
+
 /* YouTube transcript slider */
 .yt-slider {
   -webkit-appearance: none;
