@@ -505,6 +505,47 @@ hr {
   opacity: 0.75;
 }
 
+/* Unified custom tooltips */
+.has-tooltip {
+  position: relative;
+}
+
+.has-tooltip .tooltip {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #374151;
+  color: white;
+  font-size: 0.65rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  margin-bottom: 4px;
+  z-index: 10;
+}
+
+/* Right-aligned tooltips (for elements near right edge) */
+.has-tooltip.tooltip-right .tooltip {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+/* Left-aligned tooltips (for elements near left edge) */
+.has-tooltip.tooltip-left .tooltip {
+  left: 0;
+  transform: none;
+}
+
+.has-tooltip:hover .tooltip,
+.has-tooltip .tooltip.show {
+  display: block;
+}
+
+/* Legacy footer-icon support */
 .footer-icon .tooltip {
   display: none;
   position: absolute;
