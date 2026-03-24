@@ -214,8 +214,10 @@ chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiK
     btnDeleteKey.style.display = "flex";
     keyStatus.textContent = "Key saved";
     keyStatus.className = "status-msg success";
-    // Hide provider dropdown + key input when key is saved (cleaner UI)
     showCompactKeyUI();
+  } else {
+    // No key yet — show welcome message
+    document.getElementById("welcome-msg").style.display = "block";
   }
 });
 
@@ -226,6 +228,7 @@ function showCompactKeyUI() {
   providerPill.style.display = "inline-flex";
   document.getElementById("key-input-section").style.display = "none";
   document.getElementById("key-saved-compact").style.display = "flex";
+  document.getElementById("welcome-msg").style.display = "none";
 }
 
 function showFullKeyUI() {
