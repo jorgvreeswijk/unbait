@@ -12,8 +12,8 @@
     <div class="section">
       <div class="label-row">
         <label for="provider">AI Provider</label>
-        <div style="display: flex; gap: 0.25rem; align-items: center;">
-          <a id="btn-switch-provider" href="#" style="font-size: 0.75rem; color: #0d9488; text-decoration: none; display: none;">Switch</a>
+        <div style="display: flex; gap: 0.35rem; align-items: center;">
+          <a id="btn-switch-provider" href="#" class="btn-switch has-tooltip tooltip-delayed" style="display: none;"><span class="tooltip">Switch provider</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg></a>
           <button id="btn-info" class="btn-info has-tooltip tooltip-delayed" aria-label="Setup information"><span class="tooltip">Provider info</span>i</button>
         </div>
       </div>
@@ -75,6 +75,17 @@
         </div>
       </div>
 
+      <!-- Compact key status (shown when key is saved) -->
+      <div id="key-saved-compact" class="key-saved-compact" style="display: none;">
+        <span class="key-saved-text">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0d9488" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          Key saved
+        </span>
+        <a href="#" id="btn-edit-key" style="font-size: 0.75rem; color: #9ca3af; text-decoration: none;">Edit</a>
+      </div>
+
+      <!-- Full key input (shown when no key or editing) -->
+      <div id="key-input-section">
       <label for="api-key" class="label-key">API Key</label>
       <div class="key-row">
         <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
@@ -90,6 +101,7 @@
         </button>
       </div>
       <div id="key-status" class="status-msg" role="status" aria-live="polite"></div>
+      </div>
     </div>
 
     <hr>
