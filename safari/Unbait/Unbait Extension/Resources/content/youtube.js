@@ -99,7 +99,31 @@ window.addEventListener("pageshow", (event) => {
 });
 
 window.addEventListener("popstate", () => {
+  _ytApplied.clear();
   if (!_ytIsProcessing) restoreCachedTitles();
+});
+
+// YouTube SPA navigation — fires when YouTube finishes loading a new "page"
+window.addEventListener("yt-navigate-finish", () => {
+  _ytApplied.clear();
+  setTimeout(() => {
+    if (!_ytIsProcessing) {
+      restoreCachedTitles();
+      chrome.storage.local.get(["youtubeEnabled"], (data) => {
+        if (data.youtubeEnabled && !_ytIsProcessing) {
+          processYouTubeTitles();
+        }
+      });
+    }
+  }, 500);
+});
+
+// Backup: YouTube sometimes fires this instead
+window.addEventListener("yt-page-data-updated", () => {
+  _ytApplied.clear();
+  setTimeout(() => {
+    if (!_ytIsProcessing) restoreCachedTitles();
+  }, 300);
 });
 
 document.addEventListener("visibilitychange", () => {
