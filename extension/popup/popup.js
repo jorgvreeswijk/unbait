@@ -165,12 +165,35 @@ document.getElementById('yt-transcript-slider')?.addEventListener('input', (e) =
 });
 
 // YouTube toggle handlers
-document.getElementById('yt-titles-toggle').addEventListener('change', (e) => {
+document.getElementById('yt-titles-toggle').addEventListener('change', async (e) => {
   chrome.storage.local.set({ youtubeEnabled: e.target.checked });
   updateYTToggleState();
-  if (!e.target.checked) {
+
+  // Sync with autoSites list for consistency
+  const sites = await getAutoSites();
+  const ytHost = "www.youtube.com";
+  if (e.target.checked && !sites.includes(ytHost)) {
+    sites.push(ytHost);
+    await saveAutoSites(sites);
+    // Update Always On button if we're on YouTube
+    if (_currentHostname && ["www.youtube.com", "youtube.com", "m.youtube.com"].includes(_currentHostname)) {
+      toggleSiteText.textContent = "Active on this site";
+      btnToggleSite.classList.add("active");
+    }
+    setTimeout(() => renderSitesList(), 100);
+  } else if (!e.target.checked) {
     document.getElementById('yt-thumbnails-toggle').checked = false;
     chrome.storage.local.set({ youtubeThumbnails: false });
+    const idx = sites.indexOf(ytHost);
+    if (idx >= 0) {
+      sites.splice(idx, 1);
+      await saveAutoSites(sites);
+      if (_currentHostname && ["www.youtube.com", "youtube.com", "m.youtube.com"].includes(_currentHostname)) {
+        toggleSiteText.textContent = "Enable for this site";
+        btnToggleSite.classList.remove("active");
+      }
+      setTimeout(() => renderSitesList(), 100);
+    }
   }
 });
 
@@ -625,6 +648,16 @@ async function renderSitesList() {
       const updated = (await getAutoSites()).filter((s) => s !== site);
       await saveAutoSites(updated);
       await removeSitePermission(site);
+      // If removing YouTube, also disable the YouTube toggle
+      const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
+      if (YT_HOSTS.includes(site)) {
+        const ytCheckbox = document.getElementById("yt-titles-toggle");
+        if (ytCheckbox) ytCheckbox.checked = false;
+        chrome.storage.local.set({ youtubeEnabled: false, youtubeThumbnails: false });
+        const thumbCheckbox = document.getElementById("yt-thumbnails-toggle");
+        if (thumbCheckbox) thumbCheckbox.checked = false;
+        updateYTToggleState();
+      }
       renderSitesList();
       updateSiteToggle();
     });
