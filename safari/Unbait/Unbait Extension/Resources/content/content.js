@@ -7,6 +7,28 @@ window.__unbaitLoaded = true;
 let _isProcessing = false;
 let _rewriteResolve = null;
 
+// Store original/new titles keyed by URL — survives React re-renders
+const _unbaitTitles = new Map();
+
+// Event delegation for icon clicks — survives DOM replacement
+document.addEventListener("click", (e) => {
+  const icon = e.target.closest(".unbait-icon");
+  if (!icon) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const el = icon.closest(".unbait-replaced");
+  if (el) toggleTitle(el, icon);
+}, true);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const icon = e.target.closest(".unbait-icon");
+  if (!icon) return;
+  e.preventDefault();
+  const el = icon.closest(".unbait-replaced");
+  if (el) toggleTitle(el, icon);
+}, true);
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === "de-clickbait") {
     if (_isProcessing) {
@@ -50,6 +72,38 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 // Restore cached titles after back/forward navigation
+// MutationObserver: detect when React/frameworks replace our modified elements
+// and re-apply titles from the _unbaitTitles Map
+const _unbaitObserver = new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    // Check removed nodes — if a replaced headline was removed, the framework
+    // likely replaced it with a fresh node. Find the new node by URL and re-apply.
+    for (const removed of mutation.removedNodes) {
+      if (!(removed instanceof HTMLElement)) continue;
+      const replaced = removed.classList?.contains("unbait-replaced")
+        ? [removed]
+        : Array.from(removed.querySelectorAll?.(".unbait-replaced") || []);
+      for (const oldEl of replaced) {
+        const url = oldEl.dataset.unbaitUrl;
+        const stored = url && _unbaitTitles.get(url);
+        if (!stored) continue;
+        // Find the new element by matching URL in the current DOM
+        requestAnimationFrame(() => {
+          const links = document.querySelectorAll(`a[href="${CSS.escape(url)}"], a[href*="${CSS.escape(new URL(url).pathname)}"]`);
+          for (const link of links) {
+            const heading = link.querySelector("h1,h2,h3,h4,h5") || link.closest("h1,h2,h3,h4,h5") || link;
+            if (heading && !heading.classList.contains("unbait-replaced")) {
+              renderReplacedHeadline(heading, stored.rewritten, stored.original);
+              break;
+            }
+          }
+        });
+      }
+    }
+  }
+});
+_unbaitObserver.observe(document.body, { childList: true, subtree: true });
+
 // Multiple strategies because Safari is inconsistent about which events fire:
 
 // Strategy 1: pageshow with persisted (standard bfcache)
@@ -114,11 +168,10 @@ async function restoreCachedTitles() {
 
 function restoreIcons() {
   document.querySelectorAll(".unbait-replaced").forEach((el) => {
-    const existingIcon = el.parentNode?.querySelector(".unbait-icon");
-    if (existingIcon) {
-      // bfcache: icon exists but event listeners are gone — recreate it
-      existingIcon.remove();
-    }
+    // Remove any existing icons (inside or sibling — legacy cleanup)
+    el.querySelector(".unbait-icon")?.remove();
+    el.parentNode?.querySelector(":scope > .unbait-icon")?.remove();
+
     if (el.dataset.unbaitNew) {
       const icon = document.createElement("span");
       icon.className = "unbait-icon";
@@ -130,18 +183,8 @@ function restoreIcons() {
       if (el.textContent === el.dataset.unbaitOriginal) {
         icon.classList.add("showing-original");
       }
-      icon.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        toggleTitle(el, icon);
-      });
-      icon.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          icon.click();
-        }
-      });
-      el.parentNode.insertBefore(icon, el.nextSibling);
+      // No inline listeners — handled by event delegation
+      el.appendChild(icon);
     }
   });
 }
@@ -487,14 +530,24 @@ async function processHeadlines() {
  * Shared rendering logic for replacing a headline with a new title.
  */
 function renderReplacedHeadline(el, newTitle, originalText) {
-  el.textContent = newTitle;
+  // Store in Map keyed by URL — survives React DOM replacement
+  const url = el.closest("a")?.href || el.querySelector("a")?.href;
+  if (url) {
+    _unbaitTitles.set(url, { original: originalText, rewritten: newTitle });
+  }
+
   el.classList.add("unbait-replaced");
   el.title = `Origineel: ${originalText}`;
   el.dataset.unbaitOriginal = originalText;
   el.dataset.unbaitNew = newTitle;
+  if (url) el.dataset.unbaitUrl = url;
 
-  const existingIcon = el.parentNode?.querySelector(".unbait-icon");
-  if (existingIcon) existingIcon.remove();
+  // Remove any existing icon (inside or sibling — legacy cleanup)
+  el.querySelector(".unbait-icon")?.remove();
+  el.parentNode?.querySelector(":scope > .unbait-icon")?.remove();
+
+  // Set text, then append icon inside the element
+  el.textContent = newTitle;
 
   const icon = document.createElement("span");
   icon.className = "unbait-icon";
@@ -502,18 +555,8 @@ function renderReplacedHeadline(el, newTitle, originalText) {
   icon.setAttribute("role", "button");
   icon.setAttribute("tabindex", "0");
   icon.setAttribute("aria-label", "Toggle original headline");
-  icon.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    toggleTitle(el, icon);
-  });
-  icon.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      icon.click();
-    }
-  });
-  el.parentNode.insertBefore(icon, el.nextSibling);
+  // No inline listeners — handled by event delegation
+  el.appendChild(icon);
 }
 
 /**
@@ -561,21 +604,39 @@ function applyStreamResult(result) {
  * Toggle between original and new title.
  */
 function toggleTitle(el, icon) {
+  // Try data attributes first, fall back to Map (survives React re-renders)
+  let original = el.dataset.unbaitOriginal;
+  let rewritten = el.dataset.unbaitNew;
+
+  if (!original || !rewritten) {
+    const url = el.dataset.unbaitUrl || el.closest("a")?.href;
+    const stored = url && _unbaitTitles.get(url);
+    if (stored) {
+      original = stored.original;
+      rewritten = stored.rewritten;
+      // Restore data attributes
+      el.dataset.unbaitOriginal = original;
+      el.dataset.unbaitNew = rewritten;
+    }
+  }
+
+  if (!original || !rewritten) return;
+
   const isShowingOriginal = icon.classList.contains("showing-original");
 
   if (isShowingOriginal) {
-    // Switch back to new title
-    el.textContent = el.dataset.unbaitNew;
-    el.title = `Origineel: ${el.dataset.unbaitOriginal}`;
+    el.textContent = rewritten;
+    el.title = `Origineel: ${original}`;
     icon.title = "Klik om origineel te tonen";
     icon.classList.remove("showing-original");
   } else {
-    // Show original
-    el.textContent = el.dataset.unbaitOriginal;
-    el.title = `Unbait: ${el.dataset.unbaitNew}`;
+    el.textContent = original;
+    el.title = `Unbait: ${rewritten}`;
     icon.title = "Klik om Unbait-titel te tonen";
     icon.classList.add("showing-original");
   }
+  // Re-append icon (textContent removes child nodes)
+  el.appendChild(icon);
 }
 
 /**
@@ -675,8 +736,14 @@ function isValidHeadline(element, anchor) {
 }
 
 function isNavigationElement(el) {
+  // If the element is inside an <article>, it's likely a real headline
+  // even if a parent is <nav>, <aside>, <header>, etc.
+  // Many sites wrap featured/trending sections in nav or aside elements.
+  if (el.closest("article")) return false;
+
   const nav = el.closest("nav, header, footer, [role='navigation'], [role='banner'], [role='contentinfo'], aside");
   if (nav) return true;
+
   const identifier = ((el.className || "") + " " + (el.id || "")).toLowerCase();
   return /\b(nav|menu|breadcrumb|sidebar|footer|header|cookie|banner|skip)\b/.test(identifier);
 }
@@ -687,10 +754,25 @@ function looksLikeHeadlineLink(anchor) {
   if (fontSize < CONFIG.MIN_FONT_SIZE_PX) return false;
   const rect = anchor.getBoundingClientRect();
   if (rect.width < CONFIG.MIN_LINK_WIDTH_PX || rect.height < CONFIG.MIN_LINK_HEIGHT_PX) return false;
-  const parent = anchor.parentElement;
-  if (!parent) return false;
-  const parentClasses = (parent.className || "").toLowerCase();
-  return /article|card|story|post|teaser|item|feed|news|content/.test(parentClasses);
+
+  // Check if any ancestor (up to 5 levels) has article/card/story-like classes
+  let el = anchor.parentElement;
+  for (let i = 0; i < 5 && el; i++) {
+    const classes = ((el.className || "") + " " + (el.id || "")).toLowerCase();
+    if (/article|card|story|post|teaser|item|feed|news|content|hero|trending|featured|headline|digest|top-/.test(classes)) {
+      return true;
+    }
+    // Also match common data attributes and roles
+    if (el.getAttribute("data-testid")?.match(/card|story|post|item|feed/i)) {
+      return true;
+    }
+    el = el.parentElement;
+  }
+
+  // Fallback: if font is large enough (>=20px), it's likely a headline
+  if (fontSize >= 20 && rect.width >= 200) return true;
+
+  return false;
 }
 
 } // end double-injection guard

@@ -57,11 +57,9 @@ function updateBadge(tabId, state, count) {
       const imageData = generateIcon("!", "#ef4444");
       chrome.action.setIcon({ imageData, tabId });
     } else {
-      // Reset to default U icon
-      chrome.action.setIcon({
-        path: { 16: "icons/icon-16.png", 48: "icons/icon-48.png", 128: "icons/icon-128.png" },
-        tabId,
-      });
+      // Reset to default U icon (use canvas to avoid fetch issues in service worker)
+      const imageData = generateIcon("U", "#0d9488");
+      chrome.action.setIcon({ imageData, tabId });
     }
   } catch {
     // Icon API may not be available in all contexts
