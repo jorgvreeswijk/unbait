@@ -1,6 +1,19 @@
 // Track active job status per tab
 const _tabStatus = new Map();
 
+// Migrate autoSites from sync to local (one-time, for Safari compatibility)
+chrome.storage.sync.get("autoSites").then((syncData) => {
+  if (syncData.autoSites && syncData.autoSites.length > 0) {
+    chrome.storage.local.get("autoSites").then((localData) => {
+      if (!localData.autoSites || localData.autoSites.length === 0) {
+        chrome.storage.local.set({ autoSites: syncData.autoSites });
+      }
+      // Clean up sync storage
+      chrome.storage.sync.remove("autoSites");
+    });
+  }
+}).catch(() => {});
+
 // Generate a dynamic icon: teal circle with text (replaces entire icon)
 function generateIcon(text, bgColor) {
   const size = 128;
@@ -106,11 +119,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
     const isYT = YT_HOSTS.includes(hostname);
 
-    chrome.storage.sync.get("autoSites").then(async (data) => {
+    chrome.storage.local.get("autoSites").then(async (data) => {
       const sites = data.autoSites || [];
       if (!sites.includes(hostname)) {
         sites.push(hostname);
-        await chrome.storage.sync.set({ autoSites: sites });
+        await chrome.storage.local.set({ autoSites: sites });
       }
       if (isYT) {
         await chrome.storage.local.set({ youtubeEnabled: true });
@@ -130,9 +143,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
     const isYT = YT_HOSTS.includes(hostname);
 
-    chrome.storage.sync.get("autoSites").then(async (data) => {
+    chrome.storage.local.get("autoSites").then(async (data) => {
       const sites = (data.autoSites || []).filter((s) => s !== hostname);
-      await chrome.storage.sync.set({ autoSites: sites });
+      await chrome.storage.local.set({ autoSites: sites });
       if (isYT) {
         await chrome.storage.local.set({ youtubeEnabled: false });
       }
@@ -255,7 +268,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     const hostname = new URL(tab.url).hostname;
 
     Promise.all([
-      chrome.storage.sync.get("autoSites"),
+      chrome.storage.local.get("autoSites"),
       chrome.storage.local.get(["apiKey", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini", "provider"]),
     ]).then(async ([syncData, localData]) => {
       const autoSites = syncData.autoSites || [];
@@ -309,7 +322,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (YT_HOSTS.includes(hostname)) {
       Promise.all([
         chrome.storage.local.get("youtubeEnabled"),
-        chrome.storage.sync.get("autoSites"),
+        chrome.storage.local.get("autoSites"),
       ]).then(([ytData, syncData]) => {
         const autoSites = syncData.autoSites || [];
         const isYTAlwaysOn = autoSites.some((s) => YT_HOSTS.includes(s));

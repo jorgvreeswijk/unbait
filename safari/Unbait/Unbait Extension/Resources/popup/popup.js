@@ -495,12 +495,12 @@ async function removeSitePermission(hostname) {
 }
 
 async function getAutoSites() {
-  const data = await chrome.storage.sync.get("autoSites");
+  const data = await chrome.storage.local.get("autoSites");
   return data.autoSites || [];
 }
 
 async function saveAutoSites(sites) {
-  await chrome.storage.sync.set({ autoSites: sites });
+  await chrome.storage.local.set({ autoSites: sites });
 }
 
 async function updateSiteToggle() {
