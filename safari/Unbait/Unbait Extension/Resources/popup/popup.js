@@ -537,7 +537,7 @@ btnToggleSite.addEventListener("click", async () => {
     }
     toggleSiteText.textContent = "Enable for this site";
     btnToggleSite.classList.remove("active");
-    renderSitesList();
+    setTimeout(() => renderSitesList(), 300);
   } else {
     // Get the tab BEFORE the permission dialog (which may close the popup)
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -559,8 +559,8 @@ btnToggleSite.addEventListener("click", async () => {
     // Force toggle button to "Active" state immediately
     toggleSiteText.textContent = "Active on this site";
     btnToggleSite.classList.add("active");
-    // Re-render sites list with the new site
-    renderSitesList();
+    // Re-render sites list after a short delay (service worker needs time to write)
+    setTimeout(() => renderSitesList(), 300);
 
     // Request permission — this may close the popup!
     // Site is already saved, so if popup dies, it's still in the list.
@@ -577,9 +577,9 @@ btnToggleSite.addEventListener("click", async () => {
       return;
     }
   }
-
-  updateSiteToggle();
-  renderSitesList();
+  // UI is already updated in both enable/disable paths above
+  // Don't call updateSiteToggle()/renderSitesList() again here —
+  // they read from storage which may not have the new data yet
 });
 
 // Manage sites toggle
