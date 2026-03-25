@@ -746,22 +746,21 @@ function addHeadline(found, seen, element, url) {
   if (element.classList.contains("unbait-replaced")) return;
 
   const text = element.textContent.trim();
+  if (!text || text.length < CONFIG.MIN_HEADLINE_LENGTH) return;
 
-  // Deduplicate by pathname (ignore query params like ?origin=)
-  // Same article can appear multiple times on BuzzFeed with different tracking params
-  let canonicalUrl;
   try {
     const parsedUrl = new URL(url);
     if (parsedUrl.pathname === "/" || parsedUrl.pathname.length < CONFIG.MIN_PATH_LENGTH) return;
-    canonicalUrl = parsedUrl.origin + parsedUrl.pathname;
+    // Deduplicate by pathname (ignore query params like ?origin=)
+    // Same article can appear multiple times on BuzzFeed with different tracking params
+    const dedupeKey = parsedUrl.origin + parsedUrl.pathname;
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
   } catch {
     return;
   }
 
-  if (!text || text.length < CONFIG.MIN_HEADLINE_LENGTH || seen.has(canonicalUrl)) return;
-
-  seen.add(canonicalUrl);
-  found.push({ element, text, url: canonicalUrl });
+  found.push({ element, text, url });
 }
 
 function isValidHeadline(element, anchor) {
