@@ -11,3 +11,9 @@ node_modules/
 # IDE
 .idea/
 .vscode/
+
+# Environment
+*.env*
+
+# Claude Code
+.claude/
