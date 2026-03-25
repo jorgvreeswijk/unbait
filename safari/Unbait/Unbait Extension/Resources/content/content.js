@@ -140,10 +140,13 @@ setTimeout(() => {
  * This runs automatically when the content script loads, so previously
  * de-clickbaited pages show their improved titles after back-navigation.
  */
+let _isRestoring = false;
 async function restoreCachedTitles() {
+  if (_isRestoring) return;
+  _isRestoring = true;
   try {
     const headlines = findHeadlines();
-    if (headlines.length === 0) return;
+    if (headlines.length === 0) { _isRestoring = false; return; }
 
     const provider = await getCurrentProvider();
     const cache = await getCache(provider);
@@ -151,9 +154,18 @@ async function restoreCachedTitles() {
 
     let restoredCount = 0;
     for (const item of headlines) {
+      // Skip elements that are already replaced (bfcache restore)
+      // Just restore their icons instead
+      if (item.element.classList.contains("unbait-replaced") && item.element.dataset.unbaitOriginal) {
+        restoreIconForElement(item.element);
+        restoredCount++;
+        continue;
+      }
+
       const cached = cache[item.url];
       if (cached && cached.newTitle && Date.now() - cached.ts < CONFIG.CACHE_MAX_AGE_MS) {
-        renderReplacedHeadline(item.element, cached.newTitle, item.text);
+        const originalText = cached.originalTitle || item.text;
+        renderReplacedHeadline(item.element, cached.newTitle, originalText);
         restoredCount++;
       }
     }
@@ -163,30 +175,34 @@ async function restoreCachedTitles() {
     }
   } catch {
     // Silently fail — this is a best-effort restore
+  } finally {
+    _isRestoring = false;
+  }
+}
+
+function restoreIconForElement(el) {
+  // Remove any existing icons (inside or sibling — legacy cleanup)
+  el.querySelector(".unbait-icon")?.remove();
+  el.parentNode?.querySelector(":scope > .unbait-icon")?.remove();
+
+  if (el.dataset.unbaitNew) {
+    const icon = document.createElement("span");
+    icon.className = "unbait-icon";
+    icon.title = "Click to show original";
+    icon.setAttribute("role", "button");
+    icon.setAttribute("tabindex", "0");
+    icon.setAttribute("aria-label", "Toggle original headline");
+    // Restore showing-original state
+    if (el.textContent === el.dataset.unbaitOriginal) {
+      icon.classList.add("showing-original");
+    }
+    // No inline listeners — handled by event delegation
+    el.appendChild(icon);
   }
 }
 
 function restoreIcons() {
-  document.querySelectorAll(".unbait-replaced").forEach((el) => {
-    // Remove any existing icons (inside or sibling — legacy cleanup)
-    el.querySelector(".unbait-icon")?.remove();
-    el.parentNode?.querySelector(":scope > .unbait-icon")?.remove();
-
-    if (el.dataset.unbaitNew) {
-      const icon = document.createElement("span");
-      icon.className = "unbait-icon";
-      icon.title = "Click to show original";
-      icon.setAttribute("role", "button");
-      icon.setAttribute("tabindex", "0");
-      icon.setAttribute("aria-label", "Toggle original headline");
-      // Restore showing-original state
-      if (el.textContent === el.dataset.unbaitOriginal) {
-        icon.classList.add("showing-original");
-      }
-      // No inline listeners — handled by event delegation
-      el.appendChild(icon);
-    }
-  });
+  document.querySelectorAll(".unbait-replaced").forEach(restoreIconForElement);
 }
 
 const CONFIG = {
@@ -343,8 +359,14 @@ async function setCacheEntries(entries, provider) {
     const now = Date.now();
 
     // Add new entries
-    for (const [url, newTitle] of Object.entries(entries)) {
-      cache[url] = { newTitle, ts: now };
+    for (const [url, value] of Object.entries(entries)) {
+      if (typeof value === "string") {
+        // Legacy format: just newTitle string
+        cache[url] = { newTitle: value, ts: now };
+      } else {
+        // New format: { newTitle, originalTitle }
+        cache[url] = { newTitle: value.newTitle, originalTitle: value.originalTitle, ts: now };
+      }
     }
 
     // Prune expired entries
@@ -399,7 +421,10 @@ function categorizeHeadlines(headlines, cache) {
   headlines.forEach((item, index) => {
     const id = `headline-${index}`;
     _unbaitElements.set(id, item.element);
-    item.element.dataset.unbaitOriginal = item.text;
+    // Only set original if not already stored (defense against race conditions)
+    if (!item.element.dataset.unbaitOriginal) {
+      item.element.dataset.unbaitOriginal = item.text;
+    }
 
     // Check cache by article URL
     const cached = cache[item.url];
@@ -478,8 +503,8 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
       for (const result of response.results) {
         applyResult(result);
         const headline = uncachedData.find((h) => h.id === result.id);
-        if (headline) {
-          newCacheEntries[headline.url] = result.newTitle;
+        if (headline && result.newTitle) {
+          newCacheEntries[headline.url] = { newTitle: result.newTitle, originalTitle: headline.text };
         }
       }
     }
@@ -530,15 +555,20 @@ async function processHeadlines() {
  * Shared rendering logic for replacing a headline with a new title.
  */
 function renderReplacedHeadline(el, newTitle, originalText) {
-  // Store in Map keyed by URL — survives React DOM replacement
+  // Preserve existing original if already set (prevents overwrite on re-render/back-nav)
+  const existingOriginal = el.dataset.unbaitOriginal;
   const url = el.closest("a")?.href || el.querySelector("a")?.href;
+  const mapOriginal = url && _unbaitTitles.get(url)?.original;
+  const trueOriginal = existingOriginal || mapOriginal || originalText;
+
+  // Store in Map keyed by URL — survives React DOM replacement
   if (url) {
-    _unbaitTitles.set(url, { original: originalText, rewritten: newTitle });
+    _unbaitTitles.set(url, { original: trueOriginal, rewritten: newTitle });
   }
 
   el.classList.add("unbait-replaced");
-  el.title = `Origineel: ${originalText}`;
-  el.dataset.unbaitOriginal = originalText;
+  el.title = `Origineel: ${trueOriginal}`;
+  el.dataset.unbaitOriginal = trueOriginal;
   el.dataset.unbaitNew = newTitle;
   if (url) el.dataset.unbaitUrl = url;
 
@@ -592,7 +622,8 @@ function applyStreamResult(result) {
       if (id === result.id) {
         const url = el.closest("a")?.href || el.querySelector("a")?.href;
         if (url && result.newTitle) {
-          setCacheEntries({ [url]: result.newTitle });
+          const originalTitle = el.dataset.unbaitOriginal || el.textContent;
+          setCacheEntries({ [url]: { newTitle: result.newTitle, originalTitle } });
         }
         break;
       }
@@ -710,6 +741,10 @@ function findHeadlines() {
 }
 
 function addHeadline(found, seen, element, url) {
+  // Skip elements already processed — prevents race condition where
+  // Always On re-trigger reads rewritten text as "original"
+  if (element.classList.contains("unbait-replaced")) return;
+
   const text = element.textContent.trim();
   if (!text || text.length < CONFIG.MIN_HEADLINE_LENGTH || seen.has(url)) return;
 
