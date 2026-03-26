@@ -109,8 +109,11 @@ window.addEventListener("yt-navigate-finish", () => {
   setTimeout(() => {
     if (!_ytIsProcessing) {
       restoreCachedTitles();
-      chrome.storage.local.get(["youtubeEnabled"], (data) => {
-        if (data.youtubeEnabled && !_ytIsProcessing) {
+      chrome.storage.local.get(["youtubeEnabled", "alwaysOnSites"], (data) => {
+        const alwaysOn = (data.alwaysOnSites || []).some(
+          (s) => s === "youtube.com" || s === "www.youtube.com" || s === "*.youtube.com"
+        );
+        if ((data.youtubeEnabled || alwaysOn) && !_ytIsProcessing) {
           processYouTubeTitles();
         }
       });
@@ -275,9 +278,13 @@ const YT_TITLE_SELECTORS = [
   "ytd-rich-item-renderer h3",                   // Homepage grid (2026 layout)
   "ytd-rich-grid-media h3",                      // Homepage grid (alternate)
   "ytd-video-renderer h3",                       // Search results
-  "ytd-compact-video-renderer h3",               // Sidebar suggestions
+  "ytd-compact-video-renderer h3",               // Sidebar suggestions (watch page)
+  "ytd-compact-video-renderer #video-title",     // Sidebar suggestions (legacy)
   "ytd-playlist-video-renderer h3",              // Playlist
+  "ytd-playlist-video-renderer #video-title",    // Playlist (legacy)
   "ytd-grid-video-renderer h3",                  // Channel page grid
+  "ytd-reel-item-renderer h3",                   // Shorts shelf
+  "ytd-watch-next-secondary-results-renderer h3", // Watch page recommendations container
   "ytd-rich-grid-media #video-title",            // Legacy layout
   "ytd-video-renderer #video-title",             // Legacy search
   "#video-title",                                // Catch-all fallback
@@ -848,6 +855,35 @@ async function processYouTubeTitles() {
 
   // Start observing for new videos from infinite scroll
   startObserving();
+
+  // On watch pages, sidebar recommendations load asynchronously.
+  // Re-scan after delays to catch them.
+  if (window.location.pathname === "/watch") {
+    const rescanSidebar = async (delayMs) => {
+      await new Promise((r) => setTimeout(r, delayMs));
+      if (_ytIsProcessing) return;
+      const laterTitles = findYouTubeTitles();
+      const newOnes = laterTitles.filter(
+        (t) => !_ytApplied.has(`yt-${t.videoId}`) && !_ytElements.has(`yt-${t.videoId}`)
+      );
+      if (newOnes.length > 0) {
+        console.debug(`[Unbait YT] Sidebar rescan: ${newOnes.length} new titles`);
+        _ytIsProcessing = true;
+        try {
+          const cache2 = await loadCache(provider);
+          const { uncachedData: unc2 } = categorizeHeadlines(newOnes, cache2);
+          if (unc2.length > 0) {
+            await enrichWithTranscripts(unc2);
+            await fetchAndApplyResults(unc2, provider, 0, newOnes.length);
+          }
+        } finally {
+          _ytIsProcessing = false;
+        }
+      }
+    };
+    rescanSidebar(2000).catch(() => {});
+    rescanSidebar(5000).catch(() => {});
+  }
 
   return result;
 }

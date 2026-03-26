@@ -1,7 +1,14 @@
 .unbait-loading {
   opacity: 0.4;
   transition: opacity 0.3s;
-  position: relative;
+}
+
+.unbait-original-hidden {
+  display: none !important;
+}
+
+.unbait-custom-title {
+  display: inline;
 }
 
 .unbait-loading::after {

@@ -572,20 +572,40 @@ function renderReplacedHeadline(el, newTitle, originalText) {
   el.dataset.unbaitNew = newTitle;
   if (url) el.dataset.unbaitUrl = url;
 
-  // Remove any existing icon (inside or sibling — legacy cleanup)
+  // Remove any existing custom title or icon (cleanup for re-render)
+  el.querySelector(".unbait-custom-title")?.remove();
   el.querySelector(".unbait-icon")?.remove();
   el.parentNode?.querySelector(":scope > .unbait-icon")?.remove();
 
-  // Set text, then append icon inside the element
-  el.textContent = newTitle;
+  // Preserve DOM structure: hide original content, insert custom title span.
+  // This prevents layout breakage on Safari where textContent destroys child elements.
+  const textTarget = el.querySelector("a") || el;
 
+  // Hide all original text nodes and inline elements (but keep structural elements)
+  for (const child of Array.from(textTarget.childNodes)) {
+    if (child.nodeType === Node.TEXT_NODE && child.textContent.trim()) {
+      const wrapper = document.createElement("span");
+      wrapper.className = "unbait-original-hidden";
+      child.parentNode.insertBefore(wrapper, child);
+      wrapper.appendChild(child);
+    } else if (child.nodeType === Node.ELEMENT_NODE && !child.classList?.contains("unbait-custom-title") && !child.classList?.contains("unbait-icon")) {
+      child.classList.add("unbait-original-hidden");
+    }
+  }
+
+  // Insert custom title
+  const customTitle = document.createElement("span");
+  customTitle.className = "unbait-custom-title";
+  customTitle.textContent = newTitle;
+  textTarget.insertBefore(customTitle, textTarget.firstChild);
+
+  // Append icon
   const icon = document.createElement("span");
   icon.className = "unbait-icon";
   icon.title = "Klik om origineel te tonen";
   icon.setAttribute("role", "button");
   icon.setAttribute("tabindex", "0");
   icon.setAttribute("aria-label", "Toggle original headline");
-  // No inline listeners — handled by event delegation
   el.appendChild(icon);
 }
 
@@ -655,19 +675,24 @@ function toggleTitle(el, icon) {
 
   const isShowingOriginal = icon.classList.contains("showing-original");
 
+  const customTitle = el.querySelector(".unbait-custom-title");
+  const hiddenOriginals = el.querySelectorAll(".unbait-original-hidden");
+
   if (isShowingOriginal) {
-    el.textContent = rewritten;
+    // Show unbait title
+    if (customTitle) customTitle.style.display = "inline";
+    hiddenOriginals.forEach((h) => (h.style.display = "none"));
     el.title = `Origineel: ${original}`;
     icon.title = "Klik om origineel te tonen";
     icon.classList.remove("showing-original");
   } else {
-    el.textContent = original;
+    // Show original
+    if (customTitle) customTitle.style.display = "none";
+    hiddenOriginals.forEach((h) => (h.style.display = ""));
     el.title = `Unbait: ${rewritten}`;
     icon.title = "Klik om Unbait-titel te tonen";
     icon.classList.add("showing-original");
   }
-  // Re-append icon (textContent removes child nodes)
-  el.appendChild(icon);
 }
 
 /**
