@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Unbait",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Replace clickbait headlines on news sites and YouTube with clear, informative titles using AI",
   "permissions": [
     "storage",
