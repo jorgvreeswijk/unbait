@@ -116,14 +116,14 @@ window.addEventListener("popstate", () => {
   if (!_isProcessing) restoreCachedTitles();
 });
 
-// Strategy 3: visibilitychange (fallback for Safari)
+// Strategy 3: visibilitychange (fallback for Safari back-navigation)
+// Only restore when there are NO replaced elements — icons on news sites are
+// stable once placed and do not need re-adding on every focus switch.
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && !_isProcessing) {
     const hasUnbaitElements = document.querySelector(".unbait-replaced");
     if (!hasUnbaitElements) {
       restoreCachedTitles();
-    } else {
-      restoreIcons();
     }
   }
 });
@@ -181,9 +181,12 @@ async function restoreCachedTitles() {
 }
 
 function restoreIconForElement(el) {
-  // Remove any existing icons (inside or sibling — legacy cleanup)
-  el.querySelector(".unbait-icon")?.remove();
-  el.parentNode?.querySelector(":scope > .unbait-icon")?.remove();
+  // If a parent is also .unbait-replaced, let the parent handle icon placement
+  // (guards against corrupted state where both <a> and inner <h2> are marked)
+  if (el.parentElement?.closest(".unbait-replaced")) return;
+
+  // Remove ALL existing icons — querySelectorAll catches duplicates from prior bugs
+  el.querySelectorAll(".unbait-icon").forEach((n) => n.remove());
 
   if (el.dataset.unbaitNew) {
     const icon = document.createElement("span");
@@ -606,9 +609,8 @@ function renderReplacedHeadline(el, newTitle, originalText) {
   el.dataset.unbaitNew = newTitle;
   if (url) el.dataset.unbaitUrl = url;
 
-  // Remove any existing icon (inside or sibling — legacy cleanup)
-  el.querySelector(".unbait-icon")?.remove();
-  el.parentNode?.querySelector(":scope > .unbait-icon")?.remove();
+  // Remove ALL existing icons before adding new one (handles edge-case duplicates)
+  el.querySelectorAll(".unbait-icon").forEach((n) => n.remove());
 
   // Set text, then append icon inside the element
   setTitleText(el, newTitle);
@@ -793,24 +795,24 @@ function extractTitleText(element) {
 }
 
 function addHeadline(found, seen, element, url) {
-  // Skip elements already processed — prevents race condition where
-  // Always On re-trigger reads rewritten text as "original"
-  if (element.classList.contains("unbait-replaced")) return;
-
-  const text = extractTitleText(element);
-  if (!text || text.length < CONFIG.MIN_HEADLINE_LENGTH) return;
-
   try {
     const parsedUrl = new URL(url);
     if (parsedUrl.pathname === "/" || parsedUrl.pathname.length < CONFIG.MIN_PATH_LENGTH) return;
-    // Deduplicate by pathname (ignore query params like ?origin=)
-    // Same article can appear multiple times on BuzzFeed with different tracking params
+    // Deduplicate by pathname — always mark URL seen, even if element is already
+    // replaced. Without this, Strategy 4 picks up the parent <a> for the same URL
+    // and marks it as unbait-replaced too, causing double icons on every restore.
     const dedupeKey = parsedUrl.origin + parsedUrl.pathname;
     if (seen.has(dedupeKey)) return;
     seen.add(dedupeKey);
   } catch {
     return;
   }
+
+  // Skip elements already processed — but only AFTER marking URL as seen above
+  if (element.classList.contains("unbait-replaced")) return;
+
+  const text = extractTitleText(element);
+  if (!text || text.length < CONFIG.MIN_HEADLINE_LENGTH) return;
 
   found.push({ element, text, url });
 }
