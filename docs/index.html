@@ -642,13 +642,13 @@
     }
     /* Nav icon: teal fill + pulsing ring */
     @keyframes nav-pulse {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(13, 148, 136, 0.45); }
-      60%       { box-shadow: 0 0 0 5px rgba(13, 148, 136, 0);   }
+      0%, 100% { box-shadow: 0 0 0 0 rgba(13, 148, 136, 0.3); }
+      60%       { box-shadow: 0 0 0 3px rgba(13, 148, 136, 0); }
     }
     .store-highlight.nav-icon-btn {
-      background: var(--teal-light);
-      color: var(--teal-dark);
-      animation: nav-pulse 2s ease-out infinite;
+      background: rgba(13, 148, 136, 0.08);
+      color: var(--teal);
+      animation: nav-pulse 3s ease-out infinite;
     }
     /* Dimmed: other-browser store buttons stay visible but step back */
     .store-dimmed.btn {
