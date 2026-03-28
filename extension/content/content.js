@@ -760,7 +760,7 @@ function findHeadlines() {
   document.querySelectorAll("a[href]").forEach((anchor) => {
     if (seen.has(anchor.href)) return;
 
-    const text = anchor.textContent.trim();
+    const text = extractTitleText(anchor);
     if (
       text.length >= CONFIG.MIN_LARGE_LINK_LENGTH &&
       text.length <= CONFIG.MAX_LARGE_LINK_LENGTH &&
@@ -775,12 +775,29 @@ function findHeadlines() {
   return found;
 }
 
+/**
+ * Extract clean title text from an element, stripping metadata children
+ * like timestamps (<time>, "15 uur geleden"), comment counts, etc.
+ * Some sites (e.g. bright.nl) nest these inside the heading element itself,
+ * which causes them to bleed into the title text via textContent.
+ */
+function extractTitleText(element) {
+  // Fast path: no metadata-like children present
+  if (!element.querySelector("time, [class*='time'], [class*='date'], [class*='ago'], [class*='meta'], [class*='comment'], [class*='count'], [class*='react']")) {
+    return element.textContent.trim();
+  }
+  // Clone and strip known metadata elements before reading text
+  const clone = element.cloneNode(true);
+  clone.querySelectorAll("time, [class*='time'], [class*='date'], [class*='ago'], [class*='meta'], [class*='comment'], [class*='count'], [class*='react']").forEach((n) => n.remove());
+  return clone.textContent.trim();
+}
+
 function addHeadline(found, seen, element, url) {
   // Skip elements already processed — prevents race condition where
   // Always On re-trigger reads rewritten text as "original"
   if (element.classList.contains("unbait-replaced")) return;
 
-  const text = element.textContent.trim();
+  const text = extractTitleText(element);
   if (!text || text.length < CONFIG.MIN_HEADLINE_LENGTH) return;
 
   try {
@@ -799,7 +816,7 @@ function addHeadline(found, seen, element, url) {
 }
 
 function isValidHeadline(element, anchor) {
-  const text = element.textContent.trim();
+  const text = extractTitleText(element);
   if (text.length < CONFIG.MIN_HEADLINE_LENGTH || text.length > CONFIG.MAX_HEADLINE_LENGTH) return false;
   if (!anchor.href || anchor.href === "#" || anchor.href === "javascript:void(0)")
     return false;
