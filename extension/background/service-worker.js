@@ -216,8 +216,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (tabId) {
         chrome.tabs.sendMessage(tabId, {
           action: "yt-rewrite-complete",
-          results: result?.results || [],
-          error: result?.error,
+          result: result || { results: [] },
+          found: message.headlines?.length || 0,
         }).catch(() => {});
       }
     });
@@ -603,8 +603,9 @@ Rules:
 - Assess if the title is clickbait. YouTube clickbait often uses: ALL CAPS words, excessive emoji, vague promises ("you won't believe..."), emotional manipulation, exaggerated claims, or intentionally withheld key information.
 - If the title is already informative and specific enough, return "newTitle": null. NOT everything needs rewriting. A title like "I made $10,000 from a vibecoded app" is already specific enough — leave it.
 - Only rewrite titles that are genuinely misleading, vague, or use manipulative tactics.
-- CRITICAL: NEVER translate the title. If the original is in Dutch, the rewrite MUST be in Dutch. If the original is in English, the rewrite MUST be in English. Preserve the EXACT language.
+- CRITICAL: NEVER translate the title. The rewritten title MUST be in the EXACT SAME language as the original. If the original is in Dutch, write Dutch. If in English, write English. If in German, write German. This is the most important rule — violating it ruins the user experience.
 - If the title uses ALL CAPS for emphasis (like "TIKKIE heeft mijn VRIENDSCHAP VERPEST"), rewrite it in normal case but keep the same language.
+- Even when the transcript is in a different language than the title, ALWAYS match the language of the ORIGINAL TITLE, not the transcript.
 - IMPORTANT: Always include specific names, products, companies, or people mentioned in the transcript context. Replace vague references with actual names.
 - Use the transcript context to make the title accurate and specific.
 - Keep titles concise (max 80 characters).
@@ -637,13 +638,15 @@ VOORBEELDEN:
 
 REGELS:
 - Maximaal ${CONFIG.MAX_TITLE_LENGTH} tekens
-- Behoud de taal van de originele kop
+- KRITIEK: Behoud ALTIJD de taal van de originele kop. Vertaal NOOIT. Een Nederlandse kop moet Nederlands blijven, een Engelse kop moet Engels blijven. Dit is de belangrijkste regel
 - Geen meningen of editoriale toon
 - Retourneer ALLEEN valide JSON, geen andere tekst`;
   }
 
   const userPrompt = mode === "youtube"
     ? `Evaluate and rewrite these YouTube titles. Return a JSON array with "id" and "newTitle" (null if the title is already good).
+
+IMPORTANT: Each rewritten title MUST be in the EXACT SAME language as the original title. A Dutch title must stay Dutch. An English title must stay English. A German title must stay German. NEVER translate to a different language.
 
 Titles:
 ${headlineList}

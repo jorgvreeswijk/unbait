@@ -180,8 +180,10 @@ async function setCacheEntries(entries, provider) {
     const cache = await getCache(provider);
     const now = Date.now();
 
-    for (const [url, newTitle] of Object.entries(entries)) {
-      cache[url] = { newTitle, ts: now };
+    for (const [url, value] of Object.entries(entries)) {
+      const newTitle = typeof value === "string" ? value : value.newTitle;
+      const originalTitle = typeof value === "string" ? undefined : value.originalTitle;
+      cache[url] = { newTitle, originalTitle, ts: now };
     }
 
     // Prune expired
@@ -225,7 +227,10 @@ async function restoreCachedTitles() {
     for (const item of titles) {
       const cached = cache[item.url];
       if (cached && cached.newTitle && Date.now() - cached.ts < YT_CONFIG.CACHE_MAX_AGE_MS) {
-        renderReplacedHeadline(item.element, cached.newTitle, item.text);
+        // Use stored original title from cache — never trust el.textContent here
+        // because it may already show our rewritten title from a prior restore call
+        const originalTitle = cached.originalTitle || item.text;
+        renderReplacedHeadline(item.element, cached.newTitle, originalTitle);
         restoredCount++;
       }
     }
@@ -240,33 +245,37 @@ async function restoreCachedTitles() {
 
 function restoreIcons() {
   document.querySelectorAll(".unbait-replaced").forEach((el) => {
-    const existingIcon = el.parentNode?.querySelector(".unbait-icon");
-    if (existingIcon) {
-      existingIcon.remove();
+    if (!el.dataset.unbaitNew) return;
+    // Remove existing icon — check inside el and the immediate next sibling
+    el.querySelector(".unbait-icon")?.remove();
+    if (el.nextElementSibling?.classList.contains("unbait-icon")) {
+      el.nextElementSibling.remove();
     }
-    if (el.dataset.unbaitNew) {
-      const icon = document.createElement("span");
-      icon.className = "unbait-icon";
-      icon.title = "Click to show original";
-      icon.setAttribute("role", "button");
-      icon.setAttribute("tabindex", "0");
-      icon.setAttribute("aria-label", "Toggle original headline");
-      if (el.textContent === el.dataset.unbaitOriginal) {
-        icon.classList.add("showing-original");
-      }
-      icon.addEventListener("click", (e) => {
+
+    const icon = document.createElement("span");
+    icon.className = "unbait-icon";
+    icon.title = "Click to show original";
+    icon.setAttribute("role", "button");
+    icon.setAttribute("tabindex", "0");
+    icon.setAttribute("aria-label", "Toggle original headline");
+    const currentText = (el.firstChild?.nodeType === Node.TEXT_NODE
+      ? el.firstChild.textContent
+      : el.textContent).trim();
+    if (currentText === el.dataset.unbaitOriginal) {
+      icon.classList.add("showing-original");
+    }
+    icon.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleTitle(el, icon);
+    });
+    icon.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        e.stopPropagation();
-        toggleTitle(el, icon);
-      });
-      icon.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          icon.click();
-        }
-      });
-      el.parentNode.insertBefore(icon, el.nextSibling);
-    }
+        icon.click();
+      }
+    });
+    el.parentNode?.insertBefore(icon, el.nextSibling);
   });
 }
 
@@ -443,69 +452,38 @@ async function enrichWithTranscripts(titles) {
 // Thumbnail replacement (optional, MVP: dim + grayscale)
 // ---------------------------------------------------------------------------
 
-function replaceThumbnail(videoId, container) {
-  const img = container.querySelector("ytd-thumbnail img, #thumbnail img");
-  if (!img || img.dataset.unbaitThumb) return;
-
-  img.dataset.unbaitThumb = "true";
-  img.style.filter = "blur(2px) grayscale(0.5)";
-  img.style.opacity = "0.7";
-}
-
 // ---------------------------------------------------------------------------
 // Render / apply / toggle (self-contained, mirrors content.js)
 // ---------------------------------------------------------------------------
 
-function renderReplacedHeadline(el, newTitle, originalText) {
-  // Dual-element approach: DON'T modify YouTube's elements.
-  // Instead, create a NEW element and HIDE the original with CSS.
-  // This prevents YouTube's data-binding from overriding our changes.
-
-  // Find the title link/container inside h3
-  const titleLink = el.querySelector("a.yt-lockup-metadata-view-model__title") ||
-    el.querySelector("a#video-title") ||
-    el.querySelector("a") ||
-    el;
-
-  // Check if we already added a custom title
-  let customTitle = el.querySelector(".unbait-custom-title");
-  if (customTitle) {
-    customTitle.textContent = newTitle;
+// Set title text while preserving the <a> link inside the element.
+// Direct el.textContent = X destroys child links, making titles unclickable.
+function setTitleText(el, text) {
+  if (el.tagName === "A") {
+    el.textContent = text;
   } else {
-    // Hide original title content (not the link itself, just the text)
-    const originalSpan = titleLink.querySelector("span.yt-core-attributed-string") ||
-      titleLink.querySelector("yt-formatted-string") ||
-      titleLink.querySelector("span");
-    if (originalSpan) {
-      originalSpan.style.display = "none";
-      originalSpan.classList.add("unbait-original-hidden");
-    }
-
-    // Create our custom title element
-    customTitle = document.createElement("span");
-    customTitle.className = "unbait-custom-title";
-    customTitle.textContent = newTitle;
-    customTitle.style.cssText = "display: inline; white-space: normal; word-break: break-word;";
-
-    // Insert our title inside the link (so clicking still navigates)
-    if (originalSpan && originalSpan.parentNode) {
-      originalSpan.parentNode.insertBefore(customTitle, originalSpan);
+    const link = el.querySelector("a");
+    if (link) {
+      link.textContent = text;
     } else {
-      titleLink.appendChild(customTitle);
+      el.textContent = text;
     }
   }
+}
 
+function renderReplacedHeadline(el, newTitle, originalText) {
   el.classList.add("unbait-replaced");
-  el.title = `Original: ${originalText}`;
-  el.dataset.unbaitOriginal = originalText;
   el.dataset.unbaitNew = newTitle;
+  // Only set original once — never overwrite a valid stored original with
+  // whatever the DOM currently shows (it may already be our rewritten title)
+  if (originalText && originalText !== newTitle && !el.dataset.unbaitOriginal) {
+    el.dataset.unbaitOriginal = originalText;
+  }
+  el.title = `Original: ${el.dataset.unbaitOriginal || originalText}`;
 
   // Mark the renderer container
   const renderer = el.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer");
   if (renderer) renderer.dataset.unbaitProcessed = "true";
-
-  const existingIcon = el.parentNode?.querySelector(".unbait-icon");
-  if (existingIcon) existingIcon.remove();
 
   const icon = document.createElement("span");
   icon.className = "unbait-icon";
@@ -524,7 +502,17 @@ function renderReplacedHeadline(el, newTitle, originalText) {
       icon.click();
     }
   });
-  el.parentNode.insertBefore(icon, el.nextSibling);
+
+  // Remove any existing icon before inserting the new one
+  el.querySelector(".unbait-icon")?.remove();
+  if (el.nextElementSibling?.classList.contains("unbait-icon")) {
+    el.nextElementSibling.remove();
+  }
+
+  setTitleText(el, newTitle);
+  // Place icon as sibling AFTER the title element — keeps it outside any
+  // line-clamp container and avoids click interception inside <a> tags
+  el.parentNode?.insertBefore(icon, el.nextSibling);
 }
 
 /**
@@ -593,7 +581,7 @@ function applyStreamResult(result) {
         const videoId = el.dataset.unbaitVideoId;
         if (videoId && result.newTitle) {
           const url = `https://www.youtube.com/watch?v=${videoId}`;
-          setCacheEntries({ [url]: result.newTitle });
+          setCacheEntries({ [url]: { newTitle: result.newTitle, originalTitle: el.dataset.unbaitOriginal } });
         }
         break;
       }
@@ -602,8 +590,10 @@ function applyStreamResult(result) {
 }
 
 function toggleTitle(el, icon) {
-  const customTitle = el.querySelector(".unbait-custom-title");
-  const originalSpan = el.querySelector(".unbait-original-hidden");
+  const original = el.dataset.unbaitOriginal;
+  const rewritten = el.dataset.unbaitNew;
+  if (!original || !rewritten) return;
+
   const isShowingOriginal = icon.classList.contains("showing-original");
 
   // Also toggle thumbnail if it was replaced
@@ -612,24 +602,22 @@ function toggleTitle(el, icon) {
   const originalThumb = renderer?.querySelector(".unbait-thumb-original");
 
   if (isShowingOriginal) {
-    // Show unbait title + neutral thumbnail
-    if (customTitle) customTitle.style.display = "inline";
-    if (originalSpan) originalSpan.style.display = "none";
+    setTitleText(el, rewritten);
     if (neutralThumb) neutralThumb.style.display = "";
     if (originalThumb) originalThumb.style.display = "none";
-    el.title = `Original: ${el.dataset.unbaitOriginal}`;
+    el.title = `Original: ${original}`;
     icon.title = "Click to show original";
     icon.classList.remove("showing-original");
   } else {
-    // Show original title + original thumbnail
-    if (customTitle) customTitle.style.display = "none";
-    if (originalSpan) originalSpan.style.display = "";
+    setTitleText(el, original);
     if (neutralThumb) neutralThumb.style.display = "none";
     if (originalThumb) originalThumb.style.display = "";
-    el.title = `Unbait: ${el.dataset.unbaitNew}`;
+    el.title = `Unbait: ${rewritten}`;
     icon.title = "Click to show Unbait title";
     icon.classList.add("showing-original");
   }
+  // Keep icon as sibling after the title element
+  el.parentNode?.insertBefore(icon, el.nextSibling);
 }
 
 // ---------------------------------------------------------------------------
@@ -643,14 +631,18 @@ function categorizeHeadlines(titles, cache) {
   titles.forEach((item) => {
     const id = `yt-${item.videoId}`;
     _ytElements.set(id, item.element);
-    item.element.dataset.unbaitOriginal = item.text;
+    // Only store original on first scan — re-scans would capture our rewritten title
+    if (!item.element.dataset.unbaitOriginal) {
+      item.element.dataset.unbaitOriginal = item.text;
+    }
     item.element.dataset.unbaitVideoId = item.videoId;
 
     const cached = cache[item.url];
     if (cached && Date.now() - cached.ts < YT_CONFIG.CACHE_MAX_AGE_MS) {
       _ytApplied.add(id);
       if (cached.newTitle) {
-        renderReplacedHeadline(item.element, cached.newTitle, item.text);
+        const originalTitle = cached.originalTitle || item.text;
+        renderReplacedHeadline(item.element, cached.newTitle, originalTitle);
         cachedCount++;
       }
     } else {
@@ -740,7 +732,7 @@ async function fetchAndApplyResults(
         applyResult(result);
         const headline = uncachedData.find((h) => h.id === result.id);
         if (headline) {
-          newCacheEntries[headline.url] = result.newTitle;
+          newCacheEntries[headline.url] = { newTitle: result.newTitle, originalTitle: headline.text };
         }
       }
     }

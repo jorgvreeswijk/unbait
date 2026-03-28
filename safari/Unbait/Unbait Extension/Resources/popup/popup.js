@@ -73,6 +73,14 @@ const aboutPanel = document.getElementById("about-panel");
 btnAbout.addEventListener("click", () => {
   const isHidden = aboutPanel.classList.toggle("hidden");
   btnAbout.textContent = isHidden ? "About Unbait" : "Close";
+  // Safari needs a nudge to recalculate popup size when content changes
+  if (!isHidden) {
+    requestAnimationFrame(() => {
+      document.body.style.height = document.body.scrollHeight + "px";
+    });
+  } else {
+    document.body.style.height = "";
+  }
 });
 
 // Footer icon hover (CSP-safe, no inline handlers)
@@ -555,7 +563,7 @@ btnToggleSite.addEventListener("click", async () => {
 
     // Update ALL UI immediately
     if (isYouTube) {
-      const ytCheckbox = document.getElementById("yt-rewrite");
+      const ytCheckbox = document.getElementById("yt-titles-toggle");
       if (ytCheckbox) ytCheckbox.checked = false;
     }
     toggleSiteText.textContent = "Enable for this site";
@@ -576,7 +584,7 @@ btnToggleSite.addEventListener("click", async () => {
     // Update ALL UI immediately before permission dialog
     // (popup may close during dialog, so update everything now)
     if (isYouTube) {
-      const ytCheckbox = document.getElementById("yt-rewrite");
+      const ytCheckbox = document.getElementById("yt-titles-toggle");
       if (ytCheckbox) ytCheckbox.checked = true;
     }
     // Force toggle button to "Active" state immediately
@@ -592,7 +600,7 @@ btnToggleSite.addEventListener("click", async () => {
       // User declined — remove the site we just added
       chrome.runtime.sendMessage({ action: "disable-site", hostname: _currentHostname }).catch(() => {});
       if (isYouTube) {
-        const ytCheckbox = document.getElementById("yt-rewrite");
+        const ytCheckbox = document.getElementById("yt-titles-toggle");
         if (ytCheckbox) ytCheckbox.checked = false;
       }
       updateSiteToggle();
