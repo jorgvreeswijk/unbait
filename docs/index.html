@@ -616,6 +616,40 @@
       .step { max-width: 100%; }
       .step-arrow { transform: rotate(90deg); padding: 0; }
     }
+
+    /* ── Browser-detected sparkle highlight ───────────────────────────── */
+    @property --sparkle-angle {
+      syntax: '<angle>';
+      initial-value: 0deg;
+      inherits: false;
+    }
+    @keyframes sparkle-spin {
+      to { --sparkle-angle: 360deg; }
+    }
+    /* Hero button: spinning gradient border behind the button */
+    .store-highlight.btn {
+      position: relative;
+      isolation: isolate;
+    }
+    .store-highlight.btn::before {
+      content: '';
+      position: absolute;
+      inset: -2px;
+      border-radius: 10px;
+      background: conic-gradient(from var(--sparkle-angle), #0d9488, #38bdf8, #818cf8, #34d399, #0d9488);
+      animation: sparkle-spin 3s linear infinite;
+      z-index: -1;
+    }
+    /* Nav icon: teal fill + pulsing ring */
+    @keyframes nav-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(13, 148, 136, 0.45); }
+      60%       { box-shadow: 0 0 0 5px rgba(13, 148, 136, 0);   }
+    }
+    .store-highlight.nav-icon-btn {
+      background: var(--teal-light);
+      color: var(--teal-dark);
+      animation: nav-pulse 2s ease-out infinite;
+    }
   </style>
 </head>
 <body>
@@ -635,11 +669,11 @@
     </div>
     <div class="nav-store-icons">
       <!-- Chrome Web Store -->
-      <a href="https://chromewebstore.google.com/detail/unbait/aalfifejmilfomffjgkaflbfkllgpbfa" class="nav-icon-btn" title="Add to Chrome" target="_blank" rel="noopener" aria-label="Add to Chrome">
+      <a href="https://chromewebstore.google.com/detail/unbait/aalfifejmilfomffjgkaflbfkllgpbfa" class="nav-icon-btn store-chrome" title="Add to Chrome" target="_blank" rel="noopener" aria-label="Add to Chrome">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="21.17" y1="8" x2="12" y2="8"/><line x1="3.95" y1="6.06" x2="8.54" y2="14"/><line x1="10.88" y1="21.94" x2="15.46" y2="14"/></svg>
       </a>
       <!-- Safari — coming soon -->
-      <span class="nav-icon-btn disabled" title="Safari — coming soon" aria-label="Safari coming soon">
+      <span class="nav-icon-btn disabled store-safari" title="Safari — coming soon" aria-label="Safari coming soon">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="currentColor" stroke="none"/></svg>
       </span>
       <!-- GitHub -->
@@ -653,11 +687,11 @@
     <h1>See what articles<br>are <em>really</em> about</h1>
     <p>Unbait replaces vague, clickbait headlines and YouTube titles with clear, informative ones using AI. Stop clicking content that wastes your time.</p>
     <div class="hero-buttons">
-      <a href="https://chromewebstore.google.com/detail/unbait/aalfifejmilfomffjgkaflbfkllgpbfa" class="btn btn-primary" target="_blank" rel="noopener">
+      <a href="https://chromewebstore.google.com/detail/unbait/aalfifejmilfomffjgkaflbfkllgpbfa" class="btn btn-primary store-chrome" target="_blank" rel="noopener">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="21.17" y1="8" x2="12" y2="8"/><line x1="3.95" y1="6.06" x2="8.54" y2="14"/><line x1="10.88" y1="21.94" x2="15.46" y2="14"/></svg>
         Add to Chrome
       </a>
-      <span class="btn btn-secondary" style="cursor: default; opacity: 0.55;">
+      <span class="btn btn-secondary store-safari" style="cursor: default; opacity: 0.55;">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="currentColor" stroke="none"/></svg>
         Safari — coming soon
       </span>
@@ -934,6 +968,21 @@
         }
       });
     });
+  </script>
+
+  <script>
+    // Detect browser and highlight the relevant store button
+    (function () {
+      var ua = navigator.userAgent;
+      var isSafari = /Safari/i.test(ua) && !/Chrome|CriOS|FxiOS/i.test(ua);
+      var isChrome = /Chrome/i.test(ua) && !/Edg|Edge|OPR/i.test(ua);
+      var target = isChrome ? 'chrome' : isSafari ? 'safari' : null;
+      if (!target) return;
+      document.querySelectorAll('.store-' + target).forEach(function (el) {
+        el.classList.add('store-highlight');
+        el.style.opacity = '1'; // un-grey Safari button for Safari users
+      });
+    })();
   </script>
 
 </body>
