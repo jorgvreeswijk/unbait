@@ -650,6 +650,19 @@
       color: var(--teal-dark);
       animation: nav-pulse 2s ease-out infinite;
     }
+    /* Dimmed: other-browser store buttons stay visible but step back */
+    .store-dimmed.btn {
+      opacity: 0.38 !important;
+    }
+    .store-dimmed.btn:hover {
+      opacity: 0.6 !important;
+    }
+    .store-dimmed.nav-icon-btn {
+      opacity: 0.35;
+    }
+    .store-dimmed.nav-icon-btn:hover {
+      opacity: 0.65;
+    }
   </style>
 </head>
 <body>
@@ -971,16 +984,21 @@
   </script>
 
   <script>
-    // Detect browser and highlight the relevant store button
+    // Detect browser, highlight matching store buttons, dim the others.
+    // If browser is unknown/unsupported → no classes added, all buttons normal.
     (function () {
       var ua = navigator.userAgent;
       var isSafari = /Safari/i.test(ua) && !/Chrome|CriOS|FxiOS/i.test(ua);
       var isChrome = /Chrome/i.test(ua) && !/Edg|Edge|OPR/i.test(ua);
       var target = isChrome ? 'chrome' : isSafari ? 'safari' : null;
-      if (!target) return;
+      if (!target) return; // unknown browser → show everything at full opacity
+      var other = target === 'chrome' ? 'safari' : 'chrome';
       document.querySelectorAll('.store-' + target).forEach(function (el) {
         el.classList.add('store-highlight');
-        el.style.opacity = '1'; // un-grey Safari button for Safari users
+        el.style.opacity = '1';
+      });
+      document.querySelectorAll('.store-' + other).forEach(function (el) {
+        el.classList.add('store-dimmed');
       });
     })();
   </script>
