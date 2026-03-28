@@ -561,19 +561,100 @@ async function processHeadlines() {
  * text-bearing sub-element and replace only that.
  */
 function setTitleText(el, text) {
+  /**
+   * Replace only the visible text content of `node`, leaving all child
+   * elements intact (<time>, badge spans like "ANALYSE"/"VIDEO", icons, etc.).
+   * Strategy: overwrite direct text-node children with the new value and
+   * blank the rest — this preserves sibling element nodes completely.
+   * If the node itself is an <a>, or contains one, we apply the same
+   * text-node replacement on that link so its href is preserved.
+   */
+  // Original replaceTextNodes — used in Step 2 on a known title-element child.
+  // Replaces the first substantive text node and clears any remaining ones.
+  function replaceTextNodes(node, value) {
+    const textNodes = Array.from(node.childNodes).filter(
+      (n) => n.nodeType === Node.TEXT_NODE && n.textContent.trim()
+    );
+    if (textNodes.length === 0) return false;
+    textNodes[0].textContent = value;
+    for (let i = 1; i < textNodes.length; i++) textNodes[i].textContent = "";
+    return true;
+  }
+
+  /**
+   * Apply `value` as the text of `target`, preserving all sibling element
+   * children (timestamps, badges, etc.).
+   *
+   * Step 1 — find the longest direct text-node (> 5 chars so timestamps like
+   *   "13:01" are skipped) and replace only that node, leaving everything else
+   *   untouched.
+   *   <a><time>13:01</time> Title text </a>  →  text-node replaced, <time> untouched.
+   *   <a>13:01<strong>Title</strong></a>     →  no long text-node → falls to Step 2.
+   *
+   * Step 2 — no long direct text-node: find the child element with the most
+   *   text (= title, always longer than a badge/timestamp) and replace that.
+   *   <a>13:01<strong>Title</strong></a>  →  <strong> rewritten, "13:01" untouched.
+   *
+   * Step 3 — no children at all: plain textContent assignment.
+   */
+  function applyText(target, value) {
+    // Step 1: find a substantive direct text-node and replace only that one
+    let titleNode = null;
+    for (const n of target.childNodes) {
+      if (n.nodeType !== Node.TEXT_NODE) continue;
+      const len = n.textContent.trim().length;
+      if (len <= 5) continue; // skip short text like timestamps ("13:01" = 5 chars)
+      if (!titleNode || len > titleNode.textContent.trim().length) titleNode = n;
+    }
+    if (titleNode) {
+      titleNode.textContent = value;
+      return;
+    }
+
+    // Step 2: pick the child element with the most text — that is the title
+    let best = null;
+    for (const child of target.children) {
+      const len = child.textContent.trim().length;
+      if (!best || len > best.textContent.trim().length) best = child;
+    }
+    if (best) {
+      if (!replaceTextNodes(best, value)) best.textContent = value;
+      return;
+    }
+
+    // Step 3: no children — set directly
+    target.textContent = value;
+  }
+
+  function setTextPreservingLink(node, value) {
+    if (node.tagName === "A") {
+      applyText(node, value);
+      return;
+    }
+    const link = node.querySelector("a");
+    if (link) {
+      applyText(link, value);
+      return;
+    }
+    applyText(node, value);
+  }
+
   if (!el.querySelector("img, figure, picture")) {
-    el.textContent = text;
+    setTextPreservingLink(el, text);
     return;
   }
-  // Element has media — find the text-bearing child that has no media
-  const heading = el.querySelector("h1, h2, h3, h4, h5");
+  // Element has media — find the text-bearing child that has no media.
+  // First try real heading tags; then fall back to elements with title-like
+  // classes (e.g. <div class="h4 list-item-title"> on wielerflits.nl).
+  const heading = el.querySelector("h1, h2, h3, h4, h5")
+    || el.querySelector("[class*='title']:not([class*='sub']):not([class*='caption'])");
   if (heading && !heading.querySelector("img, figure, picture")) {
-    heading.textContent = text;
+    setTextPreservingLink(heading, text);
     return;
   }
   for (const child of el.children) {
     if (!child.querySelector("img, figure, picture") && child.textContent.trim()) {
-      child.textContent = text;
+      setTextPreservingLink(child, text);
       return;
     }
   }
@@ -614,6 +695,30 @@ function renderReplacedHeadline(el, newTitle, originalText) {
 
   // Set text, then append icon inside the element
   setTitleText(el, newTitle);
+
+  // Re-show hidden time/date elements nearby.
+  // On wielerflits.nl the timestamp lives in a sibling of the title element:
+  //   list-item-wrapper
+  //     list-item-thumbnail
+  //     list-item-time hidden  ← shown by site JS; our DOM change blocks that
+  //     list-item-content
+  //       list-item-title      ← el (after Strategy-3 title-class fix)
+  // We walk up from el (up to 4 levels) and look for elements whose class
+  // contains "time" or "date" AND have the "hidden" class, then un-hide them.
+  // We stop as soon as we find at least one, to avoid touching unrelated items.
+  (function () {
+    let _node = el.parentElement;
+    for (let _i = 0; _i < 4 && _node; _i++, _node = _node.parentElement) {
+      const _hits = _node.querySelectorAll("[class*='time'].hidden, [class*='date'].hidden");
+      if (_hits.length > 0) {
+        _hits.forEach(function (_t) {
+          _t.classList.remove("hidden");
+          _t.removeAttribute("hidden");
+        });
+        break; // stop — don't walk further up the tree
+      }
+    }
+  })();
 
   const icon = document.createElement("span");
   icon.className = "unbait-icon";
@@ -744,7 +849,10 @@ function findHeadlines() {
   document.querySelectorAll(containerSelectors).forEach((container) => {
     if (isNavigationElement(container)) return;
 
-    const heading = container.querySelector("h1, h2, h3, h4, h5");
+    // First try real heading elements; fall back to elements with title-like
+    // classes (e.g. wielerflits.nl uses <div class="h4 list-item-title">).
+    const heading = container.querySelector("h1, h2, h3, h4, h5")
+      || container.querySelector("[class*='title']:not([class*='sub']):not([class*='caption'])");
     if (!heading) return;
 
     const link =
