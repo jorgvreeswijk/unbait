@@ -67,7 +67,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === "get-stats") {
     const replaced = document.querySelectorAll(".unbait-replaced").length;
     const icons = document.querySelectorAll(".unbait-icon").length;
-    sendResponse({ found: replaced + icons > 0 ? _unbaitElements.size || replaced : 0, count: replaced });
+    sendResponse({ found: (replaced + icons) > 0 ? _unbaitElements.size || replaced : 0, count: replaced });
   }
 });
 
@@ -652,15 +652,12 @@ function applyResult(result) {
  */
 function applyStreamResult(result) {
   if (applyResult(result)) {
-    // Find the URL for this headline to cache it
-    for (const [id, el] of _unbaitElements) {
-      if (id === result.id) {
-        const url = el.closest("a")?.href || el.querySelector("a")?.href;
-        if (url && result.newTitle) {
-          const originalTitle = el.dataset.unbaitOriginal || el.textContent;
-          setCacheEntries({ [url]: { newTitle: result.newTitle, originalTitle } });
-        }
-        break;
+    const el = _unbaitElements.get(result.id);
+    if (el) {
+      const url = el.closest("a")?.href || el.querySelector("a")?.href;
+      if (url && result.newTitle) {
+        const originalTitle = el.dataset.unbaitOriginal || el.textContent;
+        setCacheEntries({ [url]: { newTitle: result.newTitle, originalTitle } });
       }
     }
   }
@@ -713,11 +710,13 @@ function toggleTitle(el, icon) {
 function findHeadlines() {
   const found = [];
   const seen = new Set();
+  // Compute once — querySelectorAll("h1") is expensive to call per-headline
+  const singleH1Page = document.querySelectorAll("h1").length === 1;
 
   // Strategy 1: <a> containing a heading (h1-h4)
   document.querySelectorAll("a h1, a h2, a h3, a h4").forEach((heading) => {
     const anchor = heading.closest("a");
-    if (anchor && isValidHeadline(heading, anchor)) {
+    if (anchor && isValidHeadline(heading, anchor, singleH1Page)) {
       addHeadline(found, seen, heading, anchor.href);
     }
   });
@@ -753,7 +752,7 @@ function findHeadlines() {
       heading.closest("a") ||
       container.querySelector("a[href]");
 
-    if (link && isValidHeadline(heading, link)) {
+    if (link && isValidHeadline(heading, link, singleH1Page)) {
       addHeadline(found, seen, heading, link.href);
     }
   });
@@ -817,14 +816,13 @@ function addHeadline(found, seen, element, url) {
   found.push({ element, text, url });
 }
 
-function isValidHeadline(element, anchor) {
+function isValidHeadline(element, anchor, singleH1Page) {
   const text = extractTitleText(element);
   if (text.length < CONFIG.MIN_HEADLINE_LENGTH || text.length > CONFIG.MAX_HEADLINE_LENGTH) return false;
   if (!anchor.href || anchor.href === "#" || anchor.href === "javascript:void(0)")
     return false;
   if (isNavigationElement(element)) return false;
-  if (element.tagName === "H1" && document.querySelectorAll("h1").length === 1)
-    return false;
+  if (element.tagName === "H1" && singleH1Page) return false;
   return true;
 }
 

@@ -84,7 +84,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const replaced = document.querySelectorAll(".unbait-replaced").length;
     const icons = document.querySelectorAll(".unbait-icon").length;
     sendResponse({
-      found: replaced + icons > 0 ? _ytElements.size || replaced : 0,
+      found: (replaced + icons) > 0 ? _ytElements.size || replaced : 0,
       count: replaced,
     });
   }
@@ -350,9 +350,9 @@ function extractVideoId(url) {
 // Transcript fetching
 // ---------------------------------------------------------------------------
 
-async function fetchTranscript(videoId) {
+async function fetchTranscript(videoId, signal) {
   try {
-    const resp = await fetch(`https://www.youtube.com/watch?v=${videoId}`, { credentials: "omit", referrer: "" });
+    const resp = await fetch(`https://www.youtube.com/watch?v=${videoId}`, { credentials: "omit", referrer: "", signal });
     if (!resp.ok) return null;
     const html = await resp.text();
 
@@ -421,7 +421,7 @@ async function enrichWithTranscripts(titles) {
         () => controller.abort(),
         YT_CONFIG.TRANSCRIPT_TIMEOUT_MS
       );
-      const transcript = await fetchTranscript(item.videoId);
+      const transcript = await fetchTranscript(item.videoId, controller.signal);
       clearTimeout(timer);
       if (transcript) item.context = transcript;
     } catch {
@@ -576,14 +576,12 @@ function applyResult(result) {
 
 function applyStreamResult(result) {
   if (applyResult(result)) {
-    for (const [id, el] of _ytElements) {
-      if (id === result.id) {
-        const videoId = el.dataset.unbaitVideoId;
-        if (videoId && result.newTitle) {
-          const url = `https://www.youtube.com/watch?v=${videoId}`;
-          setCacheEntries({ [url]: { newTitle: result.newTitle, originalTitle: el.dataset.unbaitOriginal } });
-        }
-        break;
+    const el = _ytElements.get(result.id);
+    if (el) {
+      const videoId = el.dataset.unbaitVideoId;
+      if (videoId && result.newTitle) {
+        const url = `https://www.youtube.com/watch?v=${videoId}`;
+        setCacheEntries({ [url]: { newTitle: result.newTitle, originalTitle: el.dataset.unbaitOriginal } });
       }
     }
   }
@@ -830,7 +828,7 @@ async function processYouTubeTitles() {
             "ytd-playlist-video-renderer, ytd-grid-video-renderer"
         );
         if (renderer) {
-          replaceThumbnail(item.videoId, renderer);
+          replaceThumbnail(renderer, item.videoId);
         }
       }
     }
