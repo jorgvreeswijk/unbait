@@ -431,7 +431,7 @@ function categorizeHeadlines(headlines, cache) {
     if (cached && Date.now() - cached.ts < CONFIG.CACHE_MAX_AGE_MS) {
       _unbaitApplied.add(id);
       if (cached.newTitle) {
-        renderReplacedHeadline(item.element, cached.newTitle, item.text);
+        renderReplacedHeadline(item.element, cached.newTitle, cached.originalTitle || item.text);
         cachedCount++;
       }
     } else {
@@ -552,6 +552,40 @@ async function processHeadlines() {
 }
 
 /**
+ * Set title text without destroying image/figure children.
+ * When el is an <a> containing both an image and text (news card pattern),
+ * plain textContent = X would wipe out the thumbnail. Instead we find the
+ * text-bearing sub-element and replace only that.
+ */
+function setTitleText(el, text) {
+  if (!el.querySelector("img, figure, picture")) {
+    el.textContent = text;
+    return;
+  }
+  // Element has media — find the text-bearing child that has no media
+  const heading = el.querySelector("h1, h2, h3, h4, h5");
+  if (heading && !heading.querySelector("img, figure, picture")) {
+    heading.textContent = text;
+    return;
+  }
+  for (const child of el.children) {
+    if (!child.querySelector("img, figure, picture") && child.textContent.trim()) {
+      child.textContent = text;
+      return;
+    }
+  }
+  // Fallback: replace direct text nodes only, leave element children intact
+  let replaced = false;
+  for (const node of Array.from(el.childNodes)) {
+    if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+      node.textContent = replaced ? "" : text;
+      replaced = true;
+    }
+  }
+  if (!replaced) el.textContent = text;
+}
+
+/**
  * Shared rendering logic for replacing a headline with a new title.
  */
 function renderReplacedHeadline(el, newTitle, originalText) {
@@ -577,7 +611,7 @@ function renderReplacedHeadline(el, newTitle, originalText) {
   el.parentNode?.querySelector(":scope > .unbait-icon")?.remove();
 
   // Set text, then append icon inside the element
-  el.textContent = newTitle;
+  setTitleText(el, newTitle);
 
   const icon = document.createElement("span");
   icon.className = "unbait-icon";
@@ -656,18 +690,18 @@ function toggleTitle(el, icon) {
 
   if (isShowingOriginal) {
     // Show unbait title
-    el.textContent = rewritten;
+    setTitleText(el, rewritten);
     el.title = `Origineel: ${original}`;
     icon.title = "Klik om origineel te tonen";
     icon.classList.remove("showing-original");
   } else {
     // Show original text
-    el.textContent = original;
+    setTitleText(el, original);
     el.title = `Unbait: ${rewritten}`;
     icon.title = "Klik om Unbait-titel te tonen";
     icon.classList.add("showing-original");
   }
-  // Re-append icon (textContent removes child nodes)
+  // Re-append icon (setTitleText on a plain text element removes child nodes)
   el.appendChild(icon);
 }
 
