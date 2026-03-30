@@ -1322,6 +1322,8 @@ async function processYouTubeTitles() {
       const newOnes = laterTitles.filter(
         (t) => !_ytApplied.has(`yt-${t.videoId}`) && !_ytElements.has(`yt-${t.videoId}`)
       );
+      // Re-inject G-icons for any new titles found in rescan
+      injectYTGistIcons();
       if (newOnes.length > 0) {
         console.debug(`[Unbait YT] Sidebar rescan: ${newOnes.length} new titles`);
         _ytIsProcessing = true;

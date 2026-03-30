@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Changelog - Unbait</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <style>
+    :root {
+      --teal: #0d9488;
+      --teal-light: #ccfbf1;
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-400: #9ca3af;
+      --gray-500: #6b7280;
+      --gray-600: #4b5563;
+      --gray-700: #374151;
+      --gray-800: #1f2937;
+      --gray-900: #111827;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--gray-800);
+      line-height: 1.7;
+      background: white;
+    }
+
+    nav {
+      position: fixed;
+      top: 0;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--gray-100);
+      z-index: 100;
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      text-decoration: none;
+      color: var(--gray-900);
+    }
+
+    .nav-logo svg { width: 32px; height: 32px; }
+    .nav-logo span { font-size: 1.25rem; font-weight: 700; color: #0d9488; margin-left: -1px; }
+
+    .nav-links { display: flex; gap: 2rem; align-items: center; }
+    .nav-links a { text-decoration: none; color: var(--gray-600); font-size: 0.95rem; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--teal); }
+
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 7rem 2rem 4rem;
+    }
+
+    h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      color: var(--gray-900);
+    }
+
+    .subtitle {
+      color: var(--gray-400);
+      font-size: 0.9rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .version {
+      margin-bottom: 2.5rem;
+    }
+
+    .version-header {
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .version-header h2 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--gray-900);
+      margin: 0;
+    }
+
+    .version-date {
+      font-size: 0.85rem;
+      color: var(--gray-400);
+    }
+
+    .category {
+      margin-bottom: 1rem;
+    }
+
+    .category-label {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-bottom: 0.4rem;
+    }
+
+    .category-label.features { background: #ecfdf5; color: #065f46; }
+    .category-label.improvements { background: #eff6ff; color: #1e40af; }
+    .category-label.fixes { background: #fefce8; color: #713f12; }
+
+    .category ul {
+      padding-left: 1.25rem;
+      margin: 0;
+    }
+
+    .category li {
+      font-size: 0.95rem;
+      color: var(--gray-600);
+      margin-bottom: 0.3rem;
+    }
+
+    .version-divider {
+      border: none;
+      border-top: 1px solid var(--gray-100);
+      margin: 2rem 0;
+    }
+
+    footer {
+      text-align: center;
+      padding: 3rem 2rem;
+      color: var(--gray-400);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--gray-100);
+      margin-top: 4rem;
+    }
+
+    footer a { color: var(--teal); text-decoration: none; }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <a href="/" class="nav-logo">
+      <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="16" cy="16" r="15" fill="#0d9488"/>
+        <text x="16" y="16" text-anchor="middle" dominant-baseline="central" font-family="-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif" font-size="19" font-weight="800" fill="white">U</text>
+      </svg>
+      <span>nbait</span>
+    </a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="https://github.com/jorgvreeswijk/unbait">GitHub</a>
+    </div>
+  </nav>
+
+  <main>
+    <h1>Changelog</h1>
+    <p class="subtitle">What's new in Unbait</p>
+    <div id="changelog"></div>
+  </main>
+
+  <footer>
+    <p>Unbait is open-source and free. <a href="https://github.com/jorgvreeswijk/unbait/blob/main/LICENSE">GPL-3.0 License</a>. Built by <a href="https://github.com/jorgvreeswijk">Jorg Vreeswijk</a>.</p>
+  </footer>
+
+  <script>
+    const LABELS = {
+      features: "Features",
+      improvements: "Improvements",
+      fixes: "Bug fixes"
+    };
+
+    function formatDate(dateStr) {
+      const d = new Date(dateStr + "T00:00:00");
+      return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    }
+
+    function renderChangelog(data) {
+      const container = document.getElementById("changelog");
+
+      data.versions.forEach(function (v, i) {
+        var section = document.createElement("div");
+        section.className = "version";
+
+        var header = document.createElement("div");
+        header.className = "version-header";
+
+        var h2 = document.createElement("h2");
+        h2.textContent = v.version;
+        header.appendChild(h2);
+
+        var date = document.createElement("span");
+        date.className = "version-date";
+        date.textContent = formatDate(v.date);
+        header.appendChild(date);
+
+        section.appendChild(header);
+
+        Object.keys(v.changes).forEach(function (cat) {
+          var items = v.changes[cat];
+          if (!items || !items.length) return;
+
+          var catDiv = document.createElement("div");
+          catDiv.className = "category";
+
+          var label = document.createElement("span");
+          label.className = "category-label " + cat;
+          label.textContent = LABELS[cat] || cat;
+          catDiv.appendChild(label);
+
+          var ul = document.createElement("ul");
+          items.forEach(function (item) {
+            var li = document.createElement("li");
+            li.textContent = item;
+            ul.appendChild(li);
+          });
+          catDiv.appendChild(ul);
+
+          section.appendChild(catDiv);
+        });
+
+        container.appendChild(section);
+
+        if (i < data.versions.length - 1) {
+          var hr = document.createElement("hr");
+          hr.className = "version-divider";
+          container.appendChild(hr);
+        }
+      });
+    }
+
+    fetch("changelog.json")
+      .then(function (r) { return r.json(); })
+      .then(renderChangelog);
+  </script>
+</body>
+</html>

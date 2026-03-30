@@ -1,0 +1,76 @@
+{
+  "generatedAt": "2026-03-30T09:30:00.000Z",
+  "versions": [
+    {
+      "version": "1.2.0",
+      "tag": "v1.2.0",
+      "date": "2026-03-30",
+      "changes": {
+        "features": [
+          "Gist summaries enabled by default for new users"
+        ]
+      }
+    },
+    {
+      "version": "1.1.2",
+      "tag": "v1.1.2",
+      "date": "2026-03-28",
+      "changes": {
+        "fixes": [
+          "Fix double icon accumulation on news sites",
+          "Fix timestamp visibility on certain news sites",
+          "Strip metadata from headline text extraction"
+        ]
+      }
+    },
+    {
+      "version": "1.1.0",
+      "tag": "v1.1.0",
+      "date": "2026-03-28",
+      "changes": {
+        "features": [
+          "Multi-provider support: Anthropic, OpenAI, and Google Gemini",
+          "YouTube support: rewrite clickbait titles and replace sensational thumbnails",
+          "Always On mode: automatic per-site de-clickbaiting",
+          "Safari browser support",
+          "Gist summaries: click any headline for an instant AI verdict",
+          "Live status updates in popup during processing",
+          "Welcome message for first-time users",
+          "Share button to invite others"
+        ],
+        "improvements": [
+          "Upgrade Gemini model from 2.0 Flash to 2.5 Flash",
+          "Auto-restore cached titles on back navigation",
+          "Dynamic extension icon reflects processing state",
+          "Speed benchmarks and provider recommendations",
+          "YouTube transcript depth slider for summary detail",
+          "Reorganized YouTube settings for cleaner UX",
+          "Custom CSS tooltips throughout the extension",
+          "Security, privacy and GDPR compliance improvements"
+        ],
+        "fixes": [
+          "Fix Gemini response parsing for thinking model",
+          "Fix double-processing race condition",
+          "Fix Safari layout breakage in headlines",
+          "Fix YouTube title flickering and mismatch",
+          "Fix Always On button not updating in popup",
+          "Fix headline detection on React-based sites",
+          "Fix CSP violations for stricter content security"
+        ]
+      }
+    },
+    {
+      "version": "1.0.0",
+      "tag": "v1.0.0",
+      "date": "2026-03-23",
+      "changes": {
+        "features": [
+          "Initial release: de-clickbait any news site with one click",
+          "Bring your own API key (Anthropic)",
+          "Toggle between original and rewritten headlines",
+          "Privacy-first: no data collection, direct API calls only"
+        ]
+      }
+    }
+  ]
+}
