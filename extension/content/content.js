@@ -10,14 +10,73 @@ let _rewriteResolve = null;
 // Store original/new titles keyed by URL — survives React re-renders
 const _unbaitTitles = new Map();
 
+// Gist summary state
+let _gistEnabled = true;
+let _gistClickMode = "summary"; // "summary" = single click shows gist, "title" = single click toggles title
+let _gistActiveOverlay = null;
+let _gistActiveUrl = null;
+let _gistActiveIconEl = null;
+let _gistPendingRequests = new Set();
+let _gistCacheWriteQueue = Promise.resolve();
+
+chrome.storage.local.get(["gistEnabled", "gistClickMode"], (data) => {
+  _gistEnabled = data.gistEnabled !== false;
+  _gistClickMode = data.gistClickMode || "summary";
+});
+
 // Event delegation for icon clicks — survives DOM replacement
+// When gist is enabled: single click = gist overlay, double click = toggle title
+// When gist is disabled: click = toggle title (current behavior)
+let _clickTimer = null;
+let _clickTarget = null;
+
 document.addEventListener("click", (e) => {
+  // Handle G-icon clicks (gist-only headlines without de-clickbaited title)
+  const gIcon = e.target.closest(".gist-icon");
+  if (gIcon) {
+    e.preventDefault();
+    e.stopPropagation();
+    handleGistClickFromGIcon(gIcon);
+    return;
+  }
+
   const icon = e.target.closest(".unbait-icon");
   if (!icon) return;
   e.preventDefault();
   e.stopPropagation();
-  const el = icon.closest(".unbait-replaced");
-  if (el) toggleTitle(el, icon);
+
+  if (!_gistEnabled) {
+    // Gist off: immediate toggle (current behavior)
+    const el = icon.closest(".unbait-replaced");
+    if (el) toggleTitle(el, icon);
+    return;
+  }
+
+  // Gist on: single/double click discrimination
+  if (_clickTimer && _clickTarget === icon) {
+    // Second click within 250ms → double click
+    clearTimeout(_clickTimer);
+    _clickTimer = null;
+    _clickTarget = null;
+    const el = icon.closest(".unbait-replaced");
+    if (el) {
+      if (_gistClickMode === "title") handleGistClick(el, icon);
+      else toggleTitle(el, icon);
+    }
+  } else {
+    // First click → wait 250ms for potential second click
+    _clickTarget = icon;
+    _clickTimer = setTimeout(() => {
+      _clickTimer = null;
+      _clickTarget = null;
+      // Single click
+      const el = icon.closest(".unbait-replaced");
+      if (el) {
+        if (_gistClickMode === "title") toggleTitle(el, icon);
+        else handleGistClick(el, icon);
+      }
+    }, 250);
+  }
 }, true);
 
 document.addEventListener("keydown", (e) => {
@@ -63,6 +122,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       _rewriteResolve({ success: true, found, count: _unbaitApplied.size });
       _rewriteResolve = null;
     }
+  }
+  if (message.action === "gist-stream") {
+    handleGistStream(message);
+  }
+  if (message.action === "gist-result") {
+    handleGistResult(message);
   }
   if (message.action === "get-stats") {
     const replaced = document.querySelectorAll(".unbait-replaced").length;
@@ -150,7 +215,10 @@ async function restoreCachedTitles() {
 
     const provider = await getCurrentProvider();
     const cache = await getCache(provider);
-    if (!cache || Object.keys(cache).length === 0) return;
+    if (!cache || Object.keys(cache).length === 0) {
+      injectGistIcons();
+      return;
+    }
 
     let restoredCount = 0;
     for (const item of headlines) {
@@ -173,6 +241,8 @@ async function restoreCachedTitles() {
     if (restoredCount > 0) {
       console.debug(`[Unbait] Restored ${restoredCount} cached titles`);
     }
+    // Inject G-icons on headlines without U-icons
+    injectGistIcons();
   } catch {
     // Silently fail — this is a best-effort restore
   } finally {
@@ -537,6 +607,9 @@ async function processHeadlines() {
     return { error: "Geen koppen gevonden op deze pagina." };
   }
 
+  // Inject G-icons immediately so users can get summaries while de-clickbait loads
+  injectGistIcons();
+
   _unbaitElements.clear();
   _unbaitApplied.clear();
 
@@ -691,7 +764,14 @@ function renderReplacedHeadline(el, newTitle, originalText) {
   if (url) el.dataset.unbaitUrl = url;
 
   // Remove ALL existing icons before adding new one (handles edge-case duplicates)
-  el.querySelectorAll(".unbait-icon").forEach((n) => n.remove());
+  // Check self, parent (up to 3 levels), and siblings for stale G/U icons
+  el.querySelectorAll(".unbait-icon, .gist-icon").forEach((n) => n.remove());
+  let _p = el;
+  for (let _i = 0; _i < 3 && _p; _i++) {
+    if (_p.nextElementSibling?.classList.contains("gist-icon")) _p.nextElementSibling.remove();
+    if (_p.nextElementSibling?.classList.contains("unbait-icon")) _p.nextElementSibling.remove();
+    _p = _p.parentElement;
+  }
 
   // Set text, then append icon inside the element
   setTitleText(el, newTitle);
@@ -809,6 +889,335 @@ function toggleTitle(el, icon) {
   el.appendChild(icon);
 }
 
+// ---------------------------------------------------------------------------
+// Gist: overlay, rendering, cache, click handler
+// ---------------------------------------------------------------------------
+
+function gistRenderVerdictBadge(container, line) {
+  const badge = document.createElement("div");
+  let color = "green";
+  if (line.startsWith("\ud83d\udfe1")) color = "yellow";
+  else if (line.startsWith("\ud83d\udd34")) color = "red";
+  badge.className = `gist-verdict-badge ${color}`;
+
+  const dot = document.createElement("span");
+  dot.className = "gist-verdict-dot";
+  badge.appendChild(dot);
+
+  const content = line.slice(2).trim();
+  const sepIdx = content.indexOf(" | ");
+  const rawLabel = sepIdx >= 0 ? content.slice(0, sepIdx) : content;
+  const reason = sepIdx >= 0 ? content.slice(sepIdx + 3) : "";
+  const labelMatch = rawLabel.match(/\*\*([^*]+)\*\*/);
+  const labelText = labelMatch ? labelMatch[1] : rawLabel;
+
+  const label = document.createElement("span");
+  label.className = "gist-verdict-label";
+  label.textContent = labelText;
+  badge.appendChild(label);
+
+  if (reason) {
+    const divider = document.createElement("div");
+    divider.className = "gist-verdict-divider";
+    badge.appendChild(divider);
+    const reasonEl = document.createElement("span");
+    reasonEl.className = "gist-verdict-reason";
+    reasonEl.textContent = reason;
+    badge.appendChild(reasonEl);
+  }
+  container.appendChild(badge);
+}
+
+function gistRenderText(container, text) {
+  container.textContent = "";
+  const lines = text.split("\n");
+  let currentP = null;
+
+  const verdictIdx = lines.findIndex((l) => /^(\ud83d\udfe2|\ud83d\udfe1|\ud83d\udd34)/.test(l.trim()));
+  if (verdictIdx >= 0) gistRenderVerdictBadge(container, lines[verdictIdx].trim());
+
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
+    if (li === verdictIdx) continue;
+    if (line.trim() === "") { currentP = null; continue; }
+    if (!currentP) {
+      currentP = document.createElement("p");
+      container.appendChild(currentP);
+    } else {
+      currentP.appendChild(document.createElement("br"));
+    }
+    const parts = line.split(/(\*\*[^*]+\*\*)/g);
+    for (const part of parts) {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        const strong = document.createElement("strong");
+        strong.textContent = part.slice(2, -2);
+        currentP.appendChild(strong);
+      } else {
+        currentP.appendChild(document.createTextNode(part));
+      }
+    }
+  }
+}
+
+function gistShowOverlay(iconEl, url) {
+  gistCloseOverlay();
+  _gistActiveUrl = url;
+  _gistActiveIconEl = iconEl;
+
+  const overlay = document.createElement("div");
+  overlay.className = "gist-overlay";
+
+  const header = document.createElement("div");
+  header.className = "gist-overlay-header";
+  const titleEl = document.createElement("span");
+  titleEl.className = "gist-overlay-title";
+  titleEl.textContent = "Gist";
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "gist-overlay-close";
+  closeBtn.textContent = "\u00d7";
+  closeBtn.addEventListener("click", gistCloseOverlay);
+  header.appendChild(titleEl);
+  header.appendChild(closeBtn);
+
+  const body = document.createElement("div");
+  body.className = "gist-overlay-body";
+  const loading = document.createElement("div");
+  loading.className = "gist-overlay-loading";
+  body.appendChild(loading);
+
+  const footer = document.createElement("div");
+  footer.className = "gist-overlay-footer";
+  try { footer.textContent = new URL(url).hostname; } catch { footer.textContent = ""; }
+
+  overlay.appendChild(header);
+  overlay.appendChild(body);
+  overlay.appendChild(footer);
+  document.body.appendChild(overlay);
+  _gistActiveOverlay = overlay;
+
+  gistPositionOverlay(overlay, iconEl);
+  document.addEventListener("keydown", _gistEscHandler);
+  window.addEventListener("scroll", _gistScrollHandler, { passive: true, capture: true });
+  setTimeout(() => document.addEventListener("click", _gistOutsideClickHandler), 100);
+}
+
+function gistCloseOverlay() {
+  if (_gistActiveOverlay) { _gistActiveOverlay.remove(); _gistActiveOverlay = null; _gistActiveUrl = null; _gistActiveIconEl = null; }
+  document.removeEventListener("keydown", _gistEscHandler);
+  document.removeEventListener("click", _gistOutsideClickHandler);
+  window.removeEventListener("scroll", _gistScrollHandler, { capture: true });
+}
+
+function _gistEscHandler(e) { if (e.key === "Escape") gistCloseOverlay(); }
+function _gistOutsideClickHandler(e) {
+  if (_gistActiveOverlay && !_gistActiveOverlay.contains(e.target) && !e.target.classList.contains("unbait-icon")) gistCloseOverlay();
+}
+let _gistScrollTimer = null;
+function _gistScrollHandler() {
+  if (!_gistActiveOverlay || !_gistActiveIconEl) return;
+  if (_gistScrollTimer) clearTimeout(_gistScrollTimer);
+  _gistScrollTimer = setTimeout(() => {
+    if (_gistActiveOverlay && _gistActiveIconEl) gistPositionOverlay(_gistActiveOverlay, _gistActiveIconEl);
+  }, 50);
+}
+
+function gistPositionOverlay(overlay, iconEl) {
+  const rect = iconEl.getBoundingClientRect();
+  const pad = 8;
+  const ow = 380;
+  const maxH = 450;
+  const minVisible = 200;
+  let left = rect.left;
+  if (left + ow > window.innerWidth) left = window.innerWidth - ow - pad;
+  if (left < pad) left = pad;
+  overlay.style.left = left + "px";
+  const spaceBelow = window.innerHeight - rect.bottom - pad;
+  const spaceAbove = rect.top - pad;
+  if (spaceBelow >= maxH || (spaceBelow >= minVisible && spaceBelow >= spaceAbove)) {
+    // Below the icon — enough room, or more room than above
+    overlay.style.top = (rect.bottom + pad) + "px";
+    overlay.style.bottom = "";
+    overlay.style.maxHeight = Math.min(maxH, spaceBelow) + "px";
+  } else {
+    // Above the icon — anchor bottom edge just above the icon, grows upward
+    overlay.style.top = "";
+    overlay.style.bottom = (window.innerHeight - rect.top + pad) + "px";
+    overlay.style.maxHeight = Math.min(maxH, spaceAbove) + "px";
+  }
+}
+
+// Gist cache
+async function getGistCache(url) {
+  const data = await chrome.storage.local.get("provider");
+  const provider = data.provider || "anthropic";
+  const cacheKey = `gist_cache_${provider}`;
+  const cacheData = await chrome.storage.local.get(cacheKey);
+  const cache = cacheData[cacheKey] || {};
+  const entry = cache[url];
+  if (entry && Date.now() - entry.ts < CONFIG.CACHE_MAX_AGE_MS) return entry;
+  return null;
+}
+
+function cacheGistEntry(url, summary) {
+  _gistCacheWriteQueue = _gistCacheWriteQueue.then(async () => {
+    const data = await chrome.storage.local.get("provider");
+    const provider = data.provider || "anthropic";
+    const cacheKey = `gist_cache_${provider}`;
+    const cacheData = await chrome.storage.local.get(cacheKey);
+    const cache = cacheData[cacheKey] || {};
+    cache[url] = { summary, ts: Date.now() };
+    // Prune oldest entries if over limit
+    const keys = Object.keys(cache);
+    if (keys.length > CONFIG.CACHE_MAX_ENTRIES) {
+      keys.sort((a, b) => cache[a].ts - cache[b].ts);
+      for (let i = 0; i < keys.length - CONFIG.CACHE_MAX_ENTRIES; i++) delete cache[keys[i]];
+    }
+    await chrome.storage.local.set({ [cacheKey]: cache });
+  }).catch(() => {});
+}
+
+// Gist stream/result handlers
+function handleGistStream(message) {
+  if (message.url !== _gistActiveUrl || !_gistActiveOverlay) return;
+  const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
+  if (body) gistRenderText(body, message.text);
+}
+
+function handleGistResult(message) {
+  _gistPendingRequests.delete(message.url);
+  if (message.url !== _gistActiveUrl || !_gistActiveOverlay) {
+    // Still cache even if overlay was closed
+    if (message.summary) cacheGistEntry(message.url, message.summary);
+    return;
+  }
+  const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
+  if (!body) return;
+  if (message.error) {
+    body.textContent = "";
+    const errP = document.createElement("p");
+    errP.style.color = "#c62828";
+    errP.textContent = message.error;
+    body.appendChild(errP);
+  } else if (message.summary) {
+    gistRenderText(body, message.summary);
+    cacheGistEntry(message.url, message.summary);
+  }
+}
+
+// Gist icon click handler (single click when gist enabled)
+async function handleGistClick(el, icon) {
+  const url = el.dataset.unbaitUrl || el.closest("a")?.href || el.querySelector("a")?.href;
+  if (!url) return;
+  const title = el.dataset.unbaitOriginal || el.textContent.trim();
+
+  if (_gistActiveUrl === url && _gistActiveOverlay) { gistCloseOverlay(); return; }
+
+  gistShowOverlay(icon, url);
+
+  // Check cache first
+  const cached = await getGistCache(url);
+  if (cached) {
+    if (_gistActiveOverlay && _gistActiveUrl === url) {
+      const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
+      if (body) gistRenderText(body, cached.summary);
+    }
+    return;
+  }
+
+  if (_gistPendingRequests.has(url)) return;
+  _gistPendingRequests.add(url);
+
+  chrome.runtime.sendMessage({
+    action: "summarize-article",
+    url,
+    title,
+  }).catch(() => {
+    _gistPendingRequests.delete(url);
+    if (_gistActiveOverlay && _gistActiveUrl === url) {
+      const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
+      if (body) {
+        body.textContent = "";
+        const errP = document.createElement("p");
+        errP.style.color = "#c62828";
+        errP.textContent = "Could not connect.";
+        body.appendChild(errP);
+      }
+    }
+  });
+}
+
+// Handle click on a G-icon (gist-only, no de-clickbaited title)
+function handleGistClickFromGIcon(gIcon) {
+  const url = gIcon.dataset.gistUrl;
+  const title = gIcon.dataset.gistTitle;
+  if (!url || !title) return;
+
+  if (_gistActiveUrl === url && _gistActiveOverlay) { gistCloseOverlay(); return; }
+
+  gistShowOverlay(gIcon, url);
+
+  // Check cache first
+  getGistCache(url).then((cached) => {
+    if (cached) {
+      if (_gistActiveOverlay && _gistActiveUrl === url) {
+        const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
+        if (body) gistRenderText(body, cached.summary);
+      }
+      return;
+    }
+
+    if (_gistPendingRequests.has(url)) return;
+    _gistPendingRequests.add(url);
+
+    chrome.runtime.sendMessage({
+      action: "summarize-article",
+      url,
+      title,
+    }).catch(() => {
+      _gistPendingRequests.delete(url);
+      if (_gistActiveOverlay && _gistActiveUrl === url) {
+        const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
+        if (body) {
+          body.textContent = "";
+          const errP = document.createElement("p");
+          errP.style.color = "#c62828";
+          errP.textContent = "Could not connect.";
+          body.appendChild(errP);
+        }
+      }
+    });
+  });
+}
+
+/**
+ * Inject G-icons on headlines that don't have a U-icon (de-clickbaited title).
+ * Called after de-clickbait processing when gistEnabled is on.
+ */
+function injectGistIcons() {
+  if (!_gistEnabled) return;
+  const headlines = findHeadlines();
+  for (const item of headlines) {
+    const el = item.element;
+    // Skip if already has icons anywhere in the element tree
+    if (el.classList.contains("unbait-replaced") || el.closest(".unbait-replaced")) continue;
+    if (el.querySelector(".unbait-icon, .gist-icon")) continue;
+    if (el.nextElementSibling?.matches(".unbait-icon, .gist-icon")) continue;
+    // Check if a child heading already has icons (parent <a> wrapping a processed <h2>)
+    const childWithIcon = el.querySelector(".unbait-replaced");
+    if (childWithIcon) continue;
+
+    const gIcon = document.createElement("span");
+    gIcon.className = "gist-icon";
+    gIcon.title = "Get the gist";
+    gIcon.setAttribute("role", "button");
+    gIcon.setAttribute("tabindex", "0");
+    gIcon.setAttribute("aria-label", "Show summary");
+    gIcon.dataset.gistUrl = item.url;
+    gIcon.dataset.gistTitle = item.text;
+    el.appendChild(gIcon);
+  }
+}
+
 /**
  * Generic headline detection.
  */
@@ -905,18 +1314,20 @@ function addHeadline(found, seen, element, url) {
   try {
     const parsedUrl = new URL(url);
     if (parsedUrl.pathname === "/" || parsedUrl.pathname.length < CONFIG.MIN_PATH_LENGTH) return;
-    // Deduplicate by pathname — always mark URL seen, even if element is already
-    // replaced. Without this, Strategy 4 picks up the parent <a> for the same URL
-    // and marks it as unbait-replaced too, causing double icons on every restore.
-    const dedupeKey = parsedUrl.origin + parsedUrl.pathname;
-    if (seen.has(dedupeKey)) return;
-    seen.add(dedupeKey);
   } catch {
     return;
   }
 
-  // Skip elements already processed — but only AFTER marking URL as seen above
+  // Deduplicate by DOM element — prevents Strategy 4 from re-adding a parent <a>
+  // that Strategy 1-3 already matched. But allows multiple elements pointing to
+  // the same URL (e.g. bright.nl shows articles in both carousel and main feed).
+  if (seen.has(element)) return;
+  seen.add(element);
+
+  // Skip elements already processed (self or descendant already de-clickbaited)
   if (element.classList.contains("unbait-replaced")) return;
+  if (element.querySelector(".unbait-replaced")) return;
+  if (element.querySelector(".unbait-icon")) return;
 
   const text = extractTitleText(element);
   if (!text || text.length < CONFIG.MIN_HEADLINE_LENGTH) return;

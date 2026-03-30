@@ -19,6 +19,21 @@ let _ytIsProcessing = false;
 let _ytRewriteResolve = null;
 let _ytReplaceThumbnails = false;
 
+// Gist summary state
+let _gistEnabled = true;
+let _gistClickMode = "summary"; // "summary" = single click shows gist, "title" = single click toggles title
+let _gistActiveOverlay = null;
+let _gistActiveUrl = null;
+let _gistActiveIconEl = null;
+let _gistPendingRequests = new Set();
+let _gistCacheWriteQueue = Promise.resolve();
+const _gistTranscriptSource = new Map(); // url -> "transcript" | "title-only"
+
+chrome.storage.local.get(["gistEnabled", "gistClickMode"], (data) => {
+  _gistEnabled = data.gistEnabled !== false;
+  _gistClickMode = data.gistClickMode || "summary";
+});
+
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
@@ -78,6 +93,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       _ytRewriteResolve({ success: true, found, count: _ytApplied.size });
       _ytRewriteResolve = null;
     }
+  }
+
+  if (message.action === "gist-stream") {
+    handleGistStream(message);
+  }
+
+  if (message.action === "gist-result") {
+    handleGistResult(message);
   }
 
   if (message.action === "get-stats") {
@@ -264,10 +287,38 @@ function restoreIcons() {
     if (currentText === el.dataset.unbaitOriginal) {
       icon.classList.add("showing-original");
     }
+    let _restoreClickTimer = null;
     icon.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      toggleTitle(el, icon);
+      if (!_gistEnabled) {
+        toggleTitle(el, icon);
+        return;
+      }
+      if (_restoreClickTimer) {
+        clearTimeout(_restoreClickTimer);
+        _restoreClickTimer = null;
+        if (_gistClickMode === "title") {
+          const videoId = el.dataset.unbaitVideoId || extractVideoId(el.closest("a")?.href);
+          const url = videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
+          const title = el.dataset.unbaitOriginal || el.textContent.trim();
+          if (url) handleGistYTClick(e, url, title, videoId, icon);
+        } else {
+          toggleTitle(el, icon);
+        }
+      } else {
+        _restoreClickTimer = setTimeout(() => {
+          _restoreClickTimer = null;
+          if (_gistClickMode === "title") {
+            toggleTitle(el, icon);
+          } else {
+            const videoId = el.dataset.unbaitVideoId || extractVideoId(el.closest("a")?.href);
+            const url = videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
+            const title = el.dataset.unbaitOriginal || el.textContent.trim();
+            if (url) handleGistYTClick(e, url, title, videoId, icon);
+          }
+        }, 250);
+      }
     });
     icon.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
@@ -350,62 +401,129 @@ function extractVideoId(url) {
 // Transcript fetching
 // ---------------------------------------------------------------------------
 
+// Fast path: works when on the video's own watch page (ytInitialPlayerResponse)
+async function fetchTranscriptFromPage(videoId) {
+  if (typeof window === "undefined" || !window.ytInitialPlayerResponse?.captions) return null;
+  const pageVideoId = window.ytInitialPlayerResponse.videoDetails?.videoId;
+  if (pageVideoId && pageVideoId !== videoId) return null;
+  const tracks = window.ytInitialPlayerResponse.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+  if (!tracks || tracks.length === 0) return null;
+  const preferred = tracks.find((t) => t.languageCode === navigator.language.split("-")[0] && t.kind !== "asr")
+    || tracks.find((t) => t.languageCode === "en" && t.kind !== "asr")
+    || tracks.find((t) => t.languageCode === "en")
+    || tracks[0];
+  try {
+    const captionResp = await fetch(preferred.baseUrl + "&fmt=json3", { credentials: "same-origin" });
+    if (!captionResp.ok) return null;
+    const captionData = await captionResp.json();
+    return captionData.events || null;
+  } catch { return null; }
+}
+
+// InnerTube ANDROID client — works from any YouTube page via content script.
+// credentials: "include" sends the user's YouTube session cookies (critical for EU).
+async function fetchTranscriptViaInnerTube(videoId) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    const playerResp = await fetch("https://www.youtube.com/youtubei/v1/player", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        videoId,
+        context: {
+          client: {
+            // ANDROID client returns captions; WEB client returns 0 tracks
+            clientName: "ANDROID",
+            clientVersion: "20.10.38",
+            androidSdkVersion: 30,
+            hl: "en",
+          },
+        },
+      }),
+    });
+    clearTimeout(timer);
+    if (!playerResp.ok) return null;
+    const playerData = await playerResp.json();
+    const tracks = playerData.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!tracks || tracks.length === 0) return null;
+    const preferred = tracks.find((t) => t.languageCode === "en" && t.kind !== "asr")
+      || tracks.find((t) => t.languageCode === "en")
+      || tracks[0];
+    // ANDROID client sets fmt=srv3 in baseUrl — replace with json3 (not append!)
+    const captionUrl = new URL(preferred.baseUrl);
+    captionUrl.searchParams.set("fmt", "json3");
+    const captionResp = await fetch(captionUrl.toString(), { credentials: "include" });
+    if (!captionResp.ok) return null;
+    const captionData = await captionResp.json();
+    return captionData.events || null;
+  } catch { return null; }
+}
+
+// Fetch raw caption events for a video (tries fast path, then InnerTube)
+async function fetchCaptionEvents(videoId) {
+  let events = await fetchTranscriptFromPage(videoId);
+  if (!events) events = await fetchTranscriptViaInnerTube(videoId);
+  return events;
+}
+
+// Build transcript text for de-clickbait title rewriting (chars/time-based)
+function buildTitleTranscript(events) {
+  if (!events || events.length === 0) return null;
+  let text = "";
+  for (const ev of events) {
+    if (ev.segs) text += ev.segs.map((s) => s.utf8).join("");
+    if (ev.tStartMs && ev.tStartMs > YT_CONFIG.TRANSCRIPT_MAX_TIME_MS) break;
+  }
+  return text.replace(/\n/g, " ").trim().slice(0, YT_CONFIG.TRANSCRIPT_MAX_CHARS) || null;
+}
+
+// Build transcript text for gist summary (percentage-based with timestamps)
+async function buildGistTranscript(events) {
+  if (!events || events.length === 0) return null;
+  const data = await chrome.storage.local.get("ytGistDepth");
+  const depthPct = data.ytGistDepth || 50;
+  const lastEv = events[events.length - 1];
+  const totalMs = lastEv ? (lastEv.tStartMs || 0) + (lastEv.dDurationMs || 0) : 0;
+  const cutoffMs = totalMs > 0 ? totalMs * (depthPct / 100) : Infinity;
+  const maxChars = Math.round(1500 + (depthPct / 100) * 10500);
+
+  let text = "";
+  let lastStampMs = -30000;
+  for (const ev of events) {
+    if (ev.tStartMs != null && ev.tStartMs > cutoffMs) break;
+    if (ev.segs) {
+      if (ev.tStartMs != null && ev.tStartMs - lastStampMs >= 30000) {
+        const min = Math.floor(ev.tStartMs / 60000);
+        const sec = Math.floor((ev.tStartMs % 60000) / 1000).toString().padStart(2, "0");
+        text += `[${min}:${sec}] `;
+        lastStampMs = ev.tStartMs;
+      }
+      text += ev.segs.map((seg) => seg.utf8).join("");
+    }
+  }
+  return text.replace(/\n/g, " ").trim().slice(0, maxChars) || null;
+}
+
+// Legacy wrapper for enrichWithTranscripts (de-clickbait flow)
 async function fetchTranscript(videoId, signal) {
   try {
-    const resp = await fetch(`https://www.youtube.com/watch?v=${videoId}`, { credentials: "omit", referrer: "", signal });
-    if (!resp.ok) return null;
-    const html = await resp.text();
-
-    // Extract ytInitialPlayerResponse
-    const match = html.match(
-      /ytInitialPlayerResponse\s*=\s*(\{.+?\})\s*;\s*(?:var\s|<\/script)/s
-    );
-    if (!match) return null;
-
-    const data = JSON.parse(match[1]);
-
-    // Get caption tracks
-    const tracks =
-      data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-    if (!tracks || tracks.length === 0) {
-      // Fallback: use video description
+    const events = await fetchCaptionEvents(videoId);
+    if (!events) {
+      // Fallback: try page fetch for description
+      const resp = await fetch(`https://www.youtube.com/watch?v=${videoId}`, { credentials: "omit", referrer: "", signal });
+      if (!resp.ok) return null;
+      const html = await resp.text();
+      const match = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\})\s*;\s*(?:var\s|<\/script)/s);
+      if (!match) return null;
+      const data = JSON.parse(match[1]);
       const desc = data?.videoDetails?.shortDescription;
       return desc ? desc.slice(0, YT_CONFIG.DESCRIPTION_MAX_CHARS) : null;
     }
-
-    // Prefer manual captions > auto-generated, prefer user language
-    const userLang = navigator.language.split("-")[0];
-    const preferred =
-      tracks.find((t) => t.languageCode === userLang && t.kind !== "asr") ||
-      tracks.find((t) => t.languageCode === userLang) ||
-      tracks.find((t) => t.languageCode === "en" && t.kind !== "asr") ||
-      tracks.find((t) => t.languageCode === "en") ||
-      tracks[0];
-
-    // Fetch transcript
-    const captionResp = await fetch(preferred.baseUrl + "&fmt=json3", { credentials: "omit", referrer: "" });
-    if (!captionResp.ok) return null;
-    const captionData = await captionResp.json();
-
-    // Extract text from first ~2 minutes
-    const events = captionData.events || [];
-    let text = "";
-    for (const ev of events) {
-      if (ev.segs) {
-        text += ev.segs.map((s) => s.utf8).join("");
-      }
-      if (ev.tStartMs && ev.tStartMs > YT_CONFIG.TRANSCRIPT_MAX_TIME_MS) break;
-    }
-
-    return (
-      text
-        .replace(/\n/g, " ")
-        .trim()
-        .slice(0, YT_CONFIG.TRANSCRIPT_MAX_CHARS) || null
-    );
-  } catch {
-    return null;
-  }
+    return buildTitleTranscript(events);
+  } catch { return null; }
 }
 
 // ---------------------------------------------------------------------------
@@ -491,10 +609,41 @@ function renderReplacedHeadline(el, newTitle, originalText) {
   icon.setAttribute("role", "button");
   icon.setAttribute("tabindex", "0");
   icon.setAttribute("aria-label", "Toggle original headline");
+  let _iconClickTimer = null;
   icon.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    toggleTitle(el, icon);
+    if (!_gistEnabled) {
+      toggleTitle(el, icon);
+      return;
+    }
+    // Single/double click discrimination
+    if (_iconClickTimer) {
+      clearTimeout(_iconClickTimer);
+      _iconClickTimer = null;
+      // Double click
+      if (_gistClickMode === "title") {
+        const videoId = el.dataset.unbaitVideoId || extractVideoId(el.closest("a")?.href);
+        const url = videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
+        const title = el.dataset.unbaitOriginal || el.textContent.trim();
+        if (url) handleGistYTClick(e, url, title, videoId, icon);
+      } else {
+        toggleTitle(el, icon);
+      }
+    } else {
+      _iconClickTimer = setTimeout(() => {
+        _iconClickTimer = null;
+        // Single click
+        if (_gistClickMode === "title") {
+          toggleTitle(el, icon);
+        } else {
+          const videoId = el.dataset.unbaitVideoId || extractVideoId(el.closest("a")?.href);
+          const url = videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
+          const title = el.dataset.unbaitOriginal || el.textContent.trim();
+          if (url) handleGistYTClick(e, url, title, videoId, icon);
+        }
+      }, 250);
+    }
   });
   icon.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
@@ -505,7 +654,11 @@ function renderReplacedHeadline(el, newTitle, originalText) {
 
   // Remove any existing icon before inserting the new one
   el.querySelector(".unbait-icon")?.remove();
+  el.querySelector(".gist-icon")?.remove();
   if (el.nextElementSibling?.classList.contains("unbait-icon")) {
+    el.nextElementSibling.remove();
+  }
+  if (el.nextElementSibling?.classList.contains("gist-icon")) {
     el.nextElementSibling.remove();
   }
 
@@ -616,6 +769,316 @@ function toggleTitle(el, icon) {
   }
   // Keep icon as sibling after the title element
   el.parentNode?.insertBefore(icon, el.nextSibling);
+}
+
+// ---------------------------------------------------------------------------
+// Gist: overlay, rendering, cache, click handler (YouTube)
+// ---------------------------------------------------------------------------
+
+function gistRenderVerdictBadge(container, line) {
+  const badge = document.createElement("div");
+  let color = "green";
+  if (line.startsWith("\ud83d\udfe1")) color = "yellow";
+  else if (line.startsWith("\ud83d\udd34")) color = "red";
+  badge.className = `gist-verdict-badge ${color}`;
+  const dot = document.createElement("span");
+  dot.className = "gist-verdict-dot";
+  badge.appendChild(dot);
+  const content = line.slice(2).trim();
+  const sepIdx = content.indexOf(" | ");
+  const rawLabel = sepIdx >= 0 ? content.slice(0, sepIdx) : content;
+  const reason = sepIdx >= 0 ? content.slice(sepIdx + 3) : "";
+  const labelMatch = rawLabel.match(/\*\*([^*]+)\*\*/);
+  const labelText = labelMatch ? labelMatch[1] : rawLabel;
+  const label = document.createElement("span");
+  label.className = "gist-verdict-label";
+  label.textContent = labelText;
+  badge.appendChild(label);
+  if (reason) {
+    const divider = document.createElement("div");
+    divider.className = "gist-verdict-divider";
+    badge.appendChild(divider);
+    const reasonEl = document.createElement("span");
+    reasonEl.className = "gist-verdict-reason";
+    reasonEl.textContent = reason;
+    badge.appendChild(reasonEl);
+  }
+  container.appendChild(badge);
+}
+
+function gistRenderText(container, text) {
+  container.textContent = "";
+  const lines = text.split("\n");
+  let currentP = null;
+  const verdictIdx = lines.findIndex((l) => /^(\ud83d\udfe2|\ud83d\udfe1|\ud83d\udd34)/.test(l.trim()));
+  if (verdictIdx >= 0) gistRenderVerdictBadge(container, lines[verdictIdx].trim());
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
+    if (li === verdictIdx) continue;
+    if (line.trim() === "") { currentP = null; continue; }
+    if (!currentP) { currentP = document.createElement("p"); container.appendChild(currentP); }
+    else { currentP.appendChild(document.createElement("br")); }
+    const parts = line.split(/(\*\*[^*]+\*\*)/g);
+    for (const part of parts) {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        const strong = document.createElement("strong");
+        strong.textContent = part.slice(2, -2);
+        currentP.appendChild(strong);
+      } else {
+        currentP.appendChild(document.createTextNode(part));
+      }
+    }
+  }
+}
+
+function gistShowOverlay(iconEl, url) {
+  gistCloseOverlay();
+  _gistActiveUrl = url;
+  _gistActiveIconEl = iconEl;
+  const overlay = document.createElement("div");
+  overlay.className = "gist-overlay";
+  const header = document.createElement("div");
+  header.className = "gist-overlay-header";
+  const titleEl = document.createElement("span");
+  titleEl.className = "gist-overlay-title";
+  titleEl.textContent = "Gist";
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "gist-overlay-close";
+  closeBtn.textContent = "\u00d7";
+  closeBtn.addEventListener("click", gistCloseOverlay);
+  header.appendChild(titleEl);
+  header.appendChild(closeBtn);
+  const body = document.createElement("div");
+  body.className = "gist-overlay-body";
+  const loading = document.createElement("div");
+  loading.className = "gist-overlay-loading";
+  body.appendChild(loading);
+  const footer = document.createElement("div");
+  footer.className = "gist-overlay-footer";
+  const knownSource = _gistTranscriptSource.get(url);
+  gistUpdateFooter(footer, url, knownSource || null);
+  overlay.appendChild(header);
+  overlay.appendChild(body);
+  overlay.appendChild(footer);
+  document.body.appendChild(overlay);
+  _gistActiveOverlay = overlay;
+  gistPositionOverlay(overlay, iconEl);
+  document.addEventListener("keydown", _gistEscHandler);
+  window.addEventListener("scroll", _gistScrollHandler, { passive: true, capture: true });
+  setTimeout(() => document.addEventListener("click", _gistOutsideClickHandler), 100);
+}
+
+function gistCloseOverlay() {
+  if (_gistActiveOverlay) { _gistActiveOverlay.remove(); _gistActiveOverlay = null; _gistActiveUrl = null; _gistActiveIconEl = null; }
+  document.removeEventListener("keydown", _gistEscHandler);
+  document.removeEventListener("click", _gistOutsideClickHandler);
+  window.removeEventListener("scroll", _gistScrollHandler, { capture: true });
+}
+
+function _gistEscHandler(e) { if (e.key === "Escape") gistCloseOverlay(); }
+function _gistOutsideClickHandler(e) {
+  if (_gistActiveOverlay && !_gistActiveOverlay.contains(e.target) && !e.target.classList.contains("unbait-icon")) gistCloseOverlay();
+}
+let _gistScrollTimer = null;
+function _gistScrollHandler() {
+  if (!_gistActiveOverlay || !_gistActiveIconEl) return;
+  if (_gistScrollTimer) clearTimeout(_gistScrollTimer);
+  _gistScrollTimer = setTimeout(() => {
+    if (_gistActiveOverlay && _gistActiveIconEl) gistPositionOverlay(_gistActiveOverlay, _gistActiveIconEl);
+  }, 50);
+}
+
+function gistPositionOverlay(overlay, iconEl) {
+  const rect = iconEl.getBoundingClientRect();
+  const pad = 8; const ow = 380; const maxH = 450;
+  const minVisible = 200;
+  let left = rect.left;
+  if (left + ow > window.innerWidth) left = window.innerWidth - ow - pad;
+  if (left < pad) left = pad;
+  overlay.style.left = left + "px";
+  const spaceBelow = window.innerHeight - rect.bottom - pad;
+  const spaceAbove = rect.top - pad;
+  if (spaceBelow >= maxH || (spaceBelow >= minVisible && spaceBelow >= spaceAbove)) {
+    // Below the icon — enough room, or more room than above
+    overlay.style.top = (rect.bottom + pad) + "px";
+    overlay.style.bottom = "";
+    overlay.style.maxHeight = Math.min(maxH, spaceBelow) + "px";
+  } else {
+    // Above the icon — anchor bottom edge just above the icon, grows upward
+    overlay.style.top = "";
+    overlay.style.bottom = (window.innerHeight - rect.top + pad) + "px";
+    overlay.style.maxHeight = Math.min(maxH, spaceAbove) + "px";
+  }
+}
+
+function gistUpdateFooter(footer, url, source) {
+  footer.textContent = "";
+  const domain = document.createElement("span");
+  domain.textContent = "youtube.com";
+  footer.appendChild(domain);
+  if (source) {
+    const sep = document.createElement("span");
+    sep.textContent = " \u00b7 ";
+    sep.style.opacity = "0.4";
+    footer.appendChild(sep);
+    const badge = document.createElement("span");
+    badge.textContent = source === "transcript" ? "transcript" : "title only";
+    badge.style.fontWeight = "500";
+    badge.style.color = source === "transcript" ? "#0d9488" : "#f59e0b";
+    footer.appendChild(badge);
+  }
+}
+
+// Gist cache (YouTube)
+async function getGistYTCache(url) {
+  const data = await chrome.storage.local.get("provider");
+  const provider = data.provider || "anthropic";
+  const cacheKey = `gist_yt_cache_${provider}`;
+  const cacheData = await chrome.storage.local.get(cacheKey);
+  const cache = cacheData[cacheKey] || {};
+  const entry = cache[url];
+  if (entry && Date.now() - entry.ts < YT_CONFIG.CACHE_MAX_AGE_MS) return entry;
+  return null;
+}
+
+function cacheGistYTEntry(url, summary, hasTranscript) {
+  _gistCacheWriteQueue = _gistCacheWriteQueue.then(async () => {
+    const data = await chrome.storage.local.get("provider");
+    const provider = data.provider || "anthropic";
+    const cacheKey = `gist_yt_cache_${provider}`;
+    const cacheData = await chrome.storage.local.get(cacheKey);
+    const cache = cacheData[cacheKey] || {};
+    cache[url] = { summary, ts: Date.now(), hasTranscript };
+    const keys = Object.keys(cache);
+    if (keys.length > YT_CONFIG.CACHE_MAX_ENTRIES) {
+      keys.sort((a, b) => cache[a].ts - cache[b].ts);
+      for (let i = 0; i < keys.length - YT_CONFIG.CACHE_MAX_ENTRIES; i++) delete cache[keys[i]];
+    }
+    await chrome.storage.local.set({ [cacheKey]: cache });
+  }).catch(() => {});
+}
+
+function handleGistStream(message) {
+  if (message.url !== _gistActiveUrl || !_gistActiveOverlay) return;
+  const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
+  if (body) gistRenderText(body, message.text);
+}
+
+function handleGistResult(message) {
+  _gistPendingRequests.delete(message.url);
+  const videoId = extractVideoId(message.url);
+  if (videoId) {
+    const source = message.hasTranscript ? "transcript" : "title-only";
+    _gistTranscriptSource.set(message.url, source);
+  }
+  if (message.url !== _gistActiveUrl || !_gistActiveOverlay) {
+    if (message.summary) cacheGistYTEntry(message.url, message.summary, message.hasTranscript);
+    return;
+  }
+  const footer = _gistActiveOverlay.querySelector(".gist-overlay-footer");
+  if (footer) gistUpdateFooter(footer, message.url, _gistTranscriptSource.get(message.url) || null);
+  const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
+  if (!body) return;
+  if (message.error) {
+    body.textContent = "";
+    const errP = document.createElement("p");
+    errP.style.color = "#c62828";
+    errP.textContent = message.error;
+    body.appendChild(errP);
+  } else if (message.summary) {
+    gistRenderText(body, message.summary);
+    cacheGistYTEntry(message.url, message.summary, message.hasTranscript);
+  }
+}
+
+async function handleGistYTClick(e, url, title, videoId, icon) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  if (_gistActiveUrl === url && _gistActiveOverlay) { gistCloseOverlay(); return; }
+
+  gistShowOverlay(icon, url);
+
+  // Check cache
+  const cached = await getGistYTCache(url);
+  if (cached) {
+    const source = cached.hasTranscript === true ? "transcript"
+      : cached.hasTranscript === false ? "title-only" : null;
+    if (source) _gistTranscriptSource.set(url, source);
+    if (_gistActiveOverlay && _gistActiveUrl === url) {
+      const footer = _gistActiveOverlay.querySelector(".gist-overlay-footer");
+      if (footer) gistUpdateFooter(footer, url, source);
+      const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
+      if (body) gistRenderText(body, cached.summary);
+    }
+    return;
+  }
+
+  if (_gistPendingRequests.has(url)) return;
+  _gistPendingRequests.add(url);
+
+  // Fetch transcript via InnerTube (fast path, then ANDROID client)
+  const events = await fetchCaptionEvents(videoId);
+  let transcript = events ? await buildGistTranscript(events) : null;
+
+  if (transcript) {
+    _gistTranscriptSource.set(url, "transcript");
+    if (_gistActiveOverlay && _gistActiveUrl === url) {
+      const footer = _gistActiveOverlay.querySelector(".gist-overlay-footer");
+      if (footer) gistUpdateFooter(footer, url, "transcript");
+    }
+  }
+
+  chrome.runtime.sendMessage({
+    action: "summarize-youtube",
+    url, title, videoId,
+    transcript: transcript || undefined,
+  }).catch(() => {
+    _gistPendingRequests.delete(url);
+    if (_gistActiveOverlay && _gistActiveUrl === url) {
+      const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
+      if (body) {
+        body.textContent = "";
+        const errP = document.createElement("p");
+        errP.style.color = "#c62828";
+        errP.textContent = "Could not connect.";
+        body.appendChild(errP);
+      }
+    }
+  });
+}
+
+/**
+ * Inject G-icons on YouTube titles that don't have a U-icon.
+ * Allows users to get a gist summary even for titles that weren't de-clickbaited.
+ */
+function injectYTGistIcons() {
+  if (!_gistEnabled) return;
+  const titles = findYouTubeTitles();
+  for (const item of titles) {
+    const el = item.element;
+    // Skip if already has U-icon or G-icon
+    if (el.querySelector(".unbait-icon") || el.querySelector(".gist-icon")) continue;
+    if (el.nextElementSibling?.classList.contains("unbait-icon")) continue;
+    if (el.nextElementSibling?.classList.contains("gist-icon")) continue;
+
+    const gIcon = document.createElement("span");
+    gIcon.className = "gist-icon";
+    gIcon.title = "Get the gist";
+    gIcon.setAttribute("role", "button");
+    gIcon.setAttribute("tabindex", "0");
+    gIcon.setAttribute("aria-label", "Show summary");
+    gIcon.dataset.gistUrl = item.url;
+    gIcon.dataset.gistTitle = item.text;
+    gIcon.dataset.gistVideoId = item.videoId;
+    gIcon.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      handleGistYTClick(e, item.url, item.text, item.videoId, gIcon);
+    });
+    // Place as sibling after title (same as U-icon placement)
+    el.parentNode?.insertBefore(gIcon, el.nextSibling);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -789,6 +1252,9 @@ async function processYouTubeTitles() {
   if (titles.length === 0) {
     return { error: "No video titles found on this page." };
   }
+
+  // Inject G-icons immediately so users can get summaries while de-clickbait loads
+  injectYTGistIcons();
 
   // Process in two phases: first 15 for speed, then the rest
   const FIRST_BATCH = 15;

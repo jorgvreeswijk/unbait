@@ -95,7 +95,7 @@ const btnShare = document.getElementById("btn-share");
 const shareTooltip = document.getElementById("share-tooltip");
 if (btnShare) {
   btnShare.addEventListener("click", async () => {
-    const msg = "Unbait - See what articles are really about. Replaces clickbait headlines with clear, informative titles using AI. Try it: https://unbait.link";
+    const msg = "Unbait - See what articles are really about. De-clickbait headlines and get AI-powered summaries with a single click. Try it: https://unbait.link";
     try {
       await navigator.clipboard.writeText(msg);
     } catch {
@@ -142,7 +142,8 @@ function updateYTToggleState() {
   const titlesOn = document.getElementById('yt-titles-toggle').checked;
   const sliderContainer = document.getElementById('yt-slider-container');
   const icon = document.getElementById('yt-toggle-icon');
-  const label = document.querySelector('.yt-main-toggle span');
+  const label = document.querySelector('#youtube-section .yt-main-toggle span');
+  const status = document.getElementById('yt-status');
   if (sliderContainer) {
     sliderContainer.classList.toggle('hidden', !titlesOn);
   }
@@ -151,6 +152,10 @@ function updateYTToggleState() {
   }
   if (label) {
     label.style.color = titlesOn ? '#374151' : '#9ca3af';
+  }
+  if (status) {
+    status.textContent = titlesOn ? 'Enabled' : 'Disabled';
+    status.classList.toggle('enabled', titlesOn);
   }
 }
 
@@ -176,6 +181,7 @@ document.getElementById('yt-transcript-slider')?.addEventListener('input', (e) =
 document.getElementById('yt-titles-toggle').addEventListener('change', async (e) => {
   chrome.storage.local.set({ youtubeEnabled: e.target.checked });
   updateYTToggleState();
+  if (typeof updateGistDepthVisibility === "function") updateGistDepthVisibility();
 
   // Sync with autoSites list for consistency
   const sites = await getAutoSites();
@@ -221,6 +227,123 @@ document.getElementById('btn-yt-settings').addEventListener('click', () => {
 // YouTube info panel toggle
 document.getElementById('btn-yt-info').addEventListener('click', () => {
   document.getElementById('yt-info-panel').classList.toggle('hidden');
+});
+
+// --- Gist summaries toggle ---
+
+const gistToggle = document.getElementById("gist-toggle");
+const gistToggleIcon = document.getElementById("gist-toggle-icon");
+
+function updateGistToggleState() {
+  const on = gistToggle.checked;
+  gistToggleIcon.setAttribute("stroke", on ? "#0d9488" : "#9ca3af");
+  const label = gistToggle.closest(".yt-main-toggle")?.querySelector("span");
+  if (label) label.style.color = on ? "#374151" : "#9ca3af";
+  const status = document.getElementById("gist-status");
+  if (status) {
+    status.textContent = on ? "Enabled" : "Disabled";
+    status.classList.toggle("enabled", on);
+  }
+  updateGistDepthVisibility();
+}
+
+gistToggle.addEventListener("change", () => {
+  chrome.storage.local.set({ gistEnabled: gistToggle.checked });
+  updateGistToggleState();
+});
+
+// Gist settings panel toggle (gear icon)
+document.getElementById("btn-gist-settings").addEventListener("click", () => {
+  document.getElementById("gist-settings-panel").classList.toggle("hidden");
+});
+
+// Gist info panel toggle
+document.getElementById("btn-gist-info").addEventListener("click", () => {
+  document.getElementById("gist-info-panel").classList.toggle("hidden");
+});
+
+// --- General settings (header gear icon) ---
+
+const btnSettings = document.getElementById("btn-settings");
+const settingsPanel = document.getElementById("settings-panel");
+btnSettings.addEventListener("click", () => {
+  const wasHidden = settingsPanel.classList.toggle("hidden");
+  btnSettings.classList.toggle("active", !wasHidden);
+});
+
+// Language selector
+const langSelect = document.getElementById("summary-language");
+langSelect.addEventListener("change", () => {
+  chrome.storage.local.set({ summaryLanguage: langSelect.value });
+});
+
+// --- Gist click mode toggle ---
+const clickModeSummary = document.getElementById("click-mode-summary");
+const clickModeTitle = document.getElementById("click-mode-title");
+const clickModeHint = document.getElementById("click-mode-hint");
+
+function updateClickModeUI(mode) {
+  const isSummary = mode !== "title";
+  clickModeSummary.classList.toggle("active", isSummary);
+  clickModeTitle.classList.toggle("active", !isSummary);
+  clickModeHint.textContent = isSummary ? "Double click toggles title" : "Double click shows summary";
+}
+
+clickModeSummary.addEventListener("click", () => {
+  chrome.storage.local.set({ gistClickMode: "summary" });
+  updateClickModeUI("summary");
+});
+
+clickModeTitle.addEventListener("click", () => {
+  chrome.storage.local.set({ gistClickMode: "title" });
+  updateClickModeUI("title");
+});
+
+// Gist transcript depth slider (percentage-based, 6 steps)
+const GIST_DEPTH_STEPS = [15, 30, 50, 70, 85, 100];
+const GIST_DEPTH_LABELS = [
+  "First 15% \u2014 very fast",
+  "First 30% \u2014 quick scan",
+  "First half \u2014 balanced",
+  "First 70% \u2014 thorough",
+  "First 85% \u2014 near complete",
+  "Full transcript \u2014 most accurate",
+];
+
+const gistSlider = document.getElementById("gist-transcript-slider");
+const gistDepthValue = document.getElementById("gist-depth-value");
+const gistSliderLabel = document.getElementById("gist-slider-label");
+
+function updateGistSlider(idx) {
+  gistDepthValue.textContent = GIST_DEPTH_STEPS[idx] + "%";
+  gistSliderLabel.textContent = GIST_DEPTH_LABELS[idx];
+}
+
+gistSlider.addEventListener("input", () => {
+  const idx = parseInt(gistSlider.value, 10);
+  updateGistSlider(idx);
+  chrome.storage.local.set({ ytGistDepth: GIST_DEPTH_STEPS[idx] });
+});
+
+// Show gist depth slider only when both YouTube AND gist are enabled
+function updateGistDepthVisibility() {
+  const ytOn = document.getElementById("yt-titles-toggle").checked;
+  const gistOn = gistToggle.checked;
+  const container = document.getElementById("gist-depth-container");
+  if (container) container.classList.toggle("hidden", !(ytOn && gistOn));
+}
+
+// Load gist settings on popup open
+chrome.storage.local.get(["gistEnabled", "summaryLanguage", "ytGistDepth", "gistClickMode"], (data) => {
+  gistToggle.checked = data.gistEnabled !== false;
+  updateGistToggleState();
+  updateClickModeUI(data.gistClickMode || "summary");
+  langSelect.value = data.summaryLanguage || "auto";
+  const savedDepth = data.ytGistDepth || 50;
+  const idx = GIST_DEPTH_STEPS.indexOf(savedDepth);
+  gistSlider.value = idx >= 0 ? idx : 2;
+  updateGistSlider(parseInt(gistSlider.value, 10));
+  updateGistDepthVisibility();
 });
 
 // Load saved provider + API key on popup open
@@ -723,7 +846,7 @@ function restoreClearBtn() {
 }
 btnClearCache.addEventListener("click", async () => {
   const allData = await chrome.storage.local.get(null);
-  const cacheKeys = Object.keys(allData).filter((k) => k.startsWith("unbait_cache") || k.startsWith("unbait_yt_cache"));
+  const cacheKeys = Object.keys(allData).filter((k) => k.startsWith("unbait_cache") || k.startsWith("unbait_yt_cache") || k.startsWith("gist_cache") || k.startsWith("gist_yt_cache"));
   if (cacheKeys.length === 0) {
     btnClearCache.textContent = "Cache is empty";
     setTimeout(restoreClearBtn, 1500);
