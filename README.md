@@ -4,11 +4,11 @@
 
 [Website](https://unbait.link) | [Install](#quick-start) | [Privacy](#privacy)
 
-Unbait is a browser extension that replaces clickbait headlines with clear, informative titles using AI. It works on news sites, blogs, and YouTube -- giving you honest headlines so you can decide what's actually worth reading.
+Unbait is a browser extension that replaces clickbait headlines with clear, informative titles and provides AI-powered summaries to help you decide what's worth reading. It works on news sites, blogs, and YouTube.
 
 ## What It Does
 
-Unbait sends article metadata (headline, description, URL) to the AI provider of your choice, which returns a straightforward, non-sensationalized title. You see the real story at a glance, without the emotional manipulation. On YouTube, it can also rewrite video titles and replace flashy thumbnails with neutral ones.
+Unbait sends article metadata (headline, description, URL) to the AI provider of your choice, which returns a straightforward, non-sensationalized title. You see the real story at a glance, without the emotional manipulation. On YouTube, it can also rewrite video titles and replace flashy thumbnails with neutral ones. With Gist summaries enabled, you can also click any headline to get an instant AI-generated verdict on whether the content is worth your time.
 
 ## Features
 
@@ -16,6 +16,8 @@ Unbait sends article metadata (headline, description, URL) to the AI provider of
 - **Always On mode** -- automatically de-clickbait your favorite sites on every visit
 - **Multi-provider support** -- choose between Anthropic Claude (recommended), OpenAI GPT, or Google Gemini
 - **YouTube support (Beta)** -- rewrite video titles, replace thumbnails with neutral frames, and use the transcript depth slider to control how deep the AI analyzes video content
+- **Gist summaries** -- click any headline for an instant AI verdict: read, optional, or skip
+- **Language setting** -- get titles and summaries in your preferred language
 - **Toggle original titles** -- click any rewritten headline to see the original
 - **Per-provider caching** -- results are cached so you don't burn API credits on repeat visits
 - **Privacy-first** -- no servers, no analytics, no tracking. Your data stays local or goes directly to your chosen AI provider
@@ -94,6 +96,8 @@ When you click De-clickbait (or visit a site with Always On enabled), Unbait:
 
 For YouTube, Unbait extracts the video transcript (if available) and sends it along with the title for deeper analysis.
 
+6. (Optional) Click the G icon on any headline for a quick AI summary and verdict
+
 ## Privacy
 
 Unbait has **no backend servers, no analytics, and no tracking**.
@@ -115,7 +119,7 @@ If you discover a security vulnerability, please report it responsibly. See [SEC
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+GPL-3.0 License. See [LICENSE](LICENSE) for details.
 
 ## Support
 
