@@ -262,6 +262,30 @@ document.getElementById("btn-gist-info").addEventListener("click", () => {
   document.getElementById("gist-info-panel").classList.toggle("hidden");
 });
 
+// --- Statistics panel (chart icon) ---
+
+const btnStatsPanel = document.getElementById("btn-stats");
+const statsPanel = document.getElementById("stats-panel");
+btnStatsPanel.addEventListener("click", () => {
+  const wasHidden = statsPanel.classList.toggle("hidden");
+  btnStatsPanel.classList.toggle("active", !wasHidden);
+  // Close settings if open
+  if (!wasHidden) return;
+  settingsPanel.classList.add("hidden");
+  btnSettings.classList.remove("active");
+});
+
+// Load lifetime stats
+chrome.storage.local.get("unbait_stats", (data) => {
+  const stats = data.unbait_stats || {};
+  document.getElementById("lifetime-unbaited").textContent = (stats.totalUnbaited || 0).toLocaleString();
+  document.getElementById("lifetime-gists").textContent = (stats.totalGists || 0).toLocaleString();
+  if (stats.firstUsed) {
+    const d = new Date(stats.firstUsed);
+    document.getElementById("lifetime-since").textContent = d.toLocaleDateString(undefined, { month: "short", year: "numeric" });
+  }
+});
+
 // --- General settings (header gear icon) ---
 
 const btnSettings = document.getElementById("btn-settings");
@@ -269,6 +293,10 @@ const settingsPanel = document.getElementById("settings-panel");
 btnSettings.addEventListener("click", () => {
   const wasHidden = settingsPanel.classList.toggle("hidden");
   btnSettings.classList.toggle("active", !wasHidden);
+  // Close stats if open
+  if (!wasHidden) return;
+  statsPanel.classList.add("hidden");
+  btnStatsPanel.classList.remove("active");
 });
 
 // Language selector
@@ -333,11 +361,18 @@ function updateGistDepthVisibility() {
   if (container) container.classList.toggle("hidden", !(ytOn && gistOn));
 }
 
+// Auto-close on scroll toggle
+const gistAutocloseToggle = document.getElementById("gist-autoclose-toggle");
+gistAutocloseToggle.addEventListener("change", () => {
+  chrome.storage.local.set({ gistAutoClose: gistAutocloseToggle.checked });
+});
+
 // Load gist settings on popup open
-chrome.storage.local.get(["gistEnabled", "summaryLanguage", "ytGistDepth", "gistClickMode"], (data) => {
+chrome.storage.local.get(["gistEnabled", "summaryLanguage", "ytGistDepth", "gistClickMode", "gistAutoClose"], (data) => {
   gistToggle.checked = data.gistEnabled !== false;
   updateGistToggleState();
   updateClickModeUI(data.gistClickMode || "summary");
+  gistAutocloseToggle.checked = data.gistAutoClose !== false;
   langSelect.value = data.summaryLanguage || "auto";
   const savedDepth = data.ytGistDepth || 50;
   const idx = GIST_DEPTH_STEPS.indexOf(savedDepth);
@@ -541,7 +576,7 @@ btnDeclickbait.addEventListener("click", async () => {
     try {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        files: [scriptFile],
+        files: ["content/shared.js", scriptFile],
       });
     } catch (injectErr) {
       console.error("[Unbait] Script injection failed:", injectErr);

@@ -8,12 +8,36 @@
   <div class="container">
     <div style="display: flex; align-items: center; justify-content: space-between;">
       <h1 class="logo"><span class="logo-icon">U</span><span class="logo-text">nbait</span></h1>
-      <button id="btn-settings" class="btn-header-icon has-tooltip tooltip-delayed" aria-label="Settings">
+      <div style="display: flex; align-items: center; gap: 2px;">
+        <button id="btn-stats" class="btn-header-icon has-tooltip tooltip-delayed tooltip-right" aria-label="Statistics">
+          <span class="tooltip">Statistics</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="8" width="4" height="13" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/></svg>
+        </button>
+        <button id="btn-settings" class="btn-header-icon has-tooltip tooltip-delayed tooltip-right" aria-label="Settings">
         <span class="tooltip">Settings</span>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-      </button>
+        </button>
+      </div>
     </div>
     <p class="tagline">De-clickbait headlines and get AI-powered summaries</p>
+    <!-- Statistics panel (opens from chart icon) -->
+    <div id="stats-panel" class="hidden" style="margin-bottom: 0.5rem; padding: 0.6rem 0.75rem; background: #f0fdfa; border-radius: 6px; border: 1px solid #ccfbf1;">
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 11px; color: #555;">Headlines unbaited</span>
+          <span id="lifetime-unbaited" style="font-size: 12px; font-weight: 600; color: #0d9488;">0</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 11px; color: #555;">Gist summaries</span>
+          <span id="lifetime-gists" style="font-size: 12px; font-weight: 600; color: #0d9488;">0</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 11px; color: #555;">Using Unbait since</span>
+          <span id="lifetime-since" style="font-size: 11px; color: #888;">—</span>
+        </div>
+      </div>
+    </div>
+
     <!-- General Settings (opens from header gear icon) -->
     <div id="settings-panel" class="hidden" style="margin-bottom: 0.5rem; padding: 0.5rem; background: #f9fafb; border-radius: 6px; border: 1px solid #e5e7eb;">
       <label for="summary-language" style="font-size: 11px; color: #555; display: block; margin-bottom: 4px;">Language (titles &amp; summaries)</label>
@@ -259,6 +283,12 @@
           </div>
           <div id="click-mode-hint" style="font-size: 10px; color: #9ca3af; margin-top: 3px;">Double click toggles title</div>
         </div>
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 0.5rem; margin-bottom: 0.5rem;">
+          <label class="yt-toggle-label">
+            <input type="checkbox" id="gist-autoclose-toggle" class="yt-checkbox">
+            <span>Auto-close when scrolling away</span>
+          </label>
+        </div>
         <div id="gist-depth-container" class="hidden" style="border-top: 1px solid #e5e7eb; padding-top: 0.5rem;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
             <label for="gist-transcript-slider" style="font-size: 11px; color: #555; margin-bottom: 0;">YouTube summary depth</label>
@@ -329,7 +359,7 @@
         </p>
       </div>
 
-      <div style="text-align: center; font-size: 0.7rem; color: #9ca3af; padding: 0.5rem 0 0;">Version 1.2.0</div>
+      <div style="text-align: center; font-size: 0.7rem; color: #9ca3af; padding: 0.5rem 0 0;">Version 1.3.0</div>
 
       <div class="info-costs" style="text-align: center; padding-top: 0.25rem;">
         <div style="display: flex; justify-content: center; margin-bottom: 0.5rem;">

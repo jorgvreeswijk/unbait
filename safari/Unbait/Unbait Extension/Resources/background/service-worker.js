@@ -14,6 +14,18 @@ chrome.storage.sync.get("autoSites").then((syncData) => {
   }
 }).catch(() => {});
 
+// Increment lifetime statistics
+async function incrementStats(field, amount) {
+  if (!amount || amount <= 0) return;
+  try {
+    const data = await chrome.storage.local.get("unbait_stats");
+    const stats = data.unbait_stats || {};
+    stats[field] = (stats[field] || 0) + amount;
+    if (!stats.firstUsed) stats.firstUsed = Date.now();
+    await chrome.storage.local.set({ unbait_stats: stats });
+  } catch { /* best-effort */ }
+}
+
 // Generate a dynamic icon: teal circle with text (replaces entire icon)
 function generateIcon(text, bgColor) {
   const size = 128;
@@ -79,7 +91,7 @@ function triggerDeclickbait(tabId) {
     if (isYouTube) {
       chrome.scripting.executeScript({
         target: { tabId },
-        files: ["content/youtube.js"],
+        files: ["content/shared.js", "content/youtube.js"],
       }).then(() => {
         chrome.scripting.insertCSS({ target: { tabId }, files: ["content/content.css"] });
         setTimeout(() => {
@@ -89,7 +101,7 @@ function triggerDeclickbait(tabId) {
     } else {
       chrome.scripting.executeScript({
         target: { tabId },
-        files: ["content/content.js"],
+        files: ["content/shared.js", "content/content.js"],
       }).then(() => {
         chrome.scripting.insertCSS({ target: { tabId }, files: ["content/content.css"] });
         setTimeout(() => {
@@ -178,6 +190,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           count,
         });
         updateBadge(tabId, "done", count);
+        incrementStats("totalUnbaited", count);
       } else {
         _tabStatus.delete(tabId);
         updateBadge(tabId, "clear");
@@ -212,6 +225,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           count,
         });
         updateBadge(tabId, "done", count);
+        incrementStats("totalUnbaited", count);
       }
       if (tabId) {
         chrome.tabs.sendMessage(tabId, {
@@ -224,11 +238,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === "update-badge-count") {
+    const tabId = sender.tab?.id;
+    if (tabId && message.count > 0) {
+      updateBadge(tabId, "done", message.count);
+    }
+    return;
+  }
+
   if (message.action === "get-tab-status") {
     const tabId = message.tabId;
     const status = _tabStatus.get(tabId) || null;
     sendResponse(status);
     return;
+  }
+
+  if (message.action === "summarize-article") {
+    const tabId = sender.tab?.id;
+    sendResponse({ accepted: true });
+    handleSummarizeArticle(message, tabId);
+    return true;
+  }
+
+  if (message.action === "summarize-youtube") {
+    const tabId = sender.tab?.id;
+    sendResponse({ accepted: true });
+    handleSummarizeYouTube(message, tabId);
+    return true;
   }
 });
 
@@ -299,7 +335,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       // The content script auto-restores cached titles on load
       chrome.scripting.executeScript({
         target: { tabId },
-        files: ["content/content.js"],
+        files: ["content/shared.js", "content/content.js"],
       }).then(() => {
         chrome.scripting.insertCSS({
           target: { tabId },
@@ -327,7 +363,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
         if (ytData.youtubeEnabled || isYTAlwaysOn) {
           chrome.scripting.executeScript({
             target: { tabId },
-            files: ["content/youtube.js"],
+            files: ["content/shared.js", "content/youtube.js"],
           }).then(() => {
             chrome.scripting.insertCSS({
               target: { tabId },
@@ -349,7 +385,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 async function handleRewrite(headlines, tabId, mode = "news") {
-  const data = await chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini", "apiKey"]);
+  const data = await chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini", "apiKey", "summaryLanguage"]);
   const provider = data.provider || "anthropic";
 
   // Migrate old key format
@@ -387,20 +423,21 @@ async function handleRewrite(headlines, tabId, mode = "news") {
   _tabStatus.set(tabId, { state: "working", text: `Rewriting with ${provider}...` });
   console.debug(`[Unbait] Calling ${provider} with ${enriched.length} headlines`);
   const streamAction = mode === "youtube" ? "yt-stream-result" : "stream-result";
-  const result = await callProvider(provider, apiKey, enriched, tabId, mode, streamAction);
+  const lang = data.summaryLanguage || "auto";
+  const result = await callProvider(provider, apiKey, enriched, tabId, mode, streamAction, lang);
   console.debug(`[Unbait] ${provider} returned:`, result.error || `${result.results?.length || 0} results`);
   return result;
 }
 
-async function callProvider(provider, apiKey, headlines, tabId, mode = "news", streamAction = "stream-result") {
+async function callProvider(provider, apiKey, headlines, tabId, mode = "news", streamAction = "stream-result", lang = "auto") {
   switch (provider) {
     case "openai":
-      return await callOpenAI(apiKey, headlines, tabId, mode, streamAction);
+      return await callOpenAI(apiKey, headlines, tabId, mode, streamAction, lang);
     case "gemini":
-      return await callGemini(apiKey, headlines, tabId, mode, streamAction);
+      return await callGemini(apiKey, headlines, tabId, mode, streamAction, lang);
     case "anthropic":
     default:
-      return await callClaudeStreaming(apiKey, headlines, tabId, mode, streamAction);
+      return await callClaudeStreaming(apiKey, headlines, tabId, mode, streamAction, lang);
   }
 }
 
@@ -584,7 +621,7 @@ function extractContext(html) {
 /**
  * Build the shared prompt parts used by all providers.
  */
-function buildPrompts(headlines, mode = "news") {
+function buildPrompts(headlines, mode = "news", lang = "auto") {
   const headlineList = headlines
     .map((h) => {
       let line = `- id: "${h.id}" | kop: "${h.text}"`;
@@ -610,7 +647,7 @@ Rules:
 - Use the transcript context to make the title accurate and specific.
 - Keep titles concise (max 80 characters).
 - No opinions or editorial tone.
-- Return ONLY valid JSON, no other text.`;
+- Return ONLY valid JSON, no other text.${lang !== "auto" ? `\n- OVERRIDE: Write ALL rewritten titles in ${LANGUAGE_INSTRUCTIONS[lang]?.replace(/^Always write in /, "").replace(/, regardless.*$/, "") || lang}. This overrides the "same language" rule.` : ""}`;
   } else {
     systemPrompt = `Je bent een redacteur die clickbait-koppen herschrijft naar informatieve titels.
 
@@ -640,7 +677,7 @@ REGELS:
 - Maximaal ${CONFIG.MAX_TITLE_LENGTH} tekens
 - KRITIEK: Behoud ALTIJD de taal van de originele kop. Vertaal NOOIT. Een Nederlandse kop moet Nederlands blijven, een Engelse kop moet Engels blijven. Dit is de belangrijkste regel
 - Geen meningen of editoriale toon
-- Retourneer ALLEEN valide JSON, geen andere tekst`;
+- Retourneer ALLEEN valide JSON, geen andere tekst${lang !== "auto" ? `\n- OVERSCHRIJF: Schrijf ALLE herschreven titels in het ${{"nl":"Nederlands","en":"Engels","de":"Duits","fr":"Frans","es":"Spaans"}[lang] || lang}. Dit overschrijft de "zelfde taal" regel.` : ""}`;
   }
 
   const userPrompt = mode === "youtube"
@@ -735,8 +772,8 @@ async function readSSEStream(response, extractDelta, tabId, streamAction = "stre
 /**
  * Call Claude API with streaming.
  */
-async function callClaudeStreaming(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result") {
-  const { systemPrompt, userPrompt } = buildPrompts(headlines, mode);
+async function callClaudeStreaming(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result", lang = "auto") {
+  const { systemPrompt, userPrompt } = buildPrompts(headlines, mode, lang);
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -845,16 +882,16 @@ function parseAndSendResults(text, tabId, streamAction = "stream-result") {
 /**
  * Call OpenAI API (GPT-4o mini) with streaming.
  */
-async function callOpenAI(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result") {
+async function callOpenAI(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result", lang = "auto") {
   const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
 
   // Safari: batch mode (non-streaming) in small batches to avoid SW timeout
   if (isSafari) {
-    return callOpenAIBatched(apiKey, headlines, tabId, mode, streamAction);
+    return callOpenAIBatched(apiKey, headlines, tabId, mode, streamAction, lang);
   }
 
   // Chrome: streaming mode for best UX
-  const { systemPrompt, userPrompt } = buildPrompts(headlines, mode);
+  const { systemPrompt, userPrompt } = buildPrompts(headlines, mode, lang);
 
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -899,13 +936,13 @@ async function callOpenAI(apiKey, headlines, tabId, mode = "news", streamAction 
  * Safari-specific: process OpenAI in small non-streaming batches.
  * Each batch completes quickly enough to avoid SW termination.
  */
-async function callOpenAIBatched(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result") {
+async function callOpenAIBatched(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result", lang = "auto") {
   const BATCH_SIZE = 8;
   const allResults = [];
 
   for (let i = 0; i < headlines.length; i += BATCH_SIZE) {
     const batch = headlines.slice(i, i + BATCH_SIZE);
-    const { systemPrompt, userPrompt } = buildPrompts(batch, mode);
+    const { systemPrompt, userPrompt } = buildPrompts(batch, mode, lang);
 
     try {
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -983,13 +1020,13 @@ async function callGeminiSingleRequest(apiKey, systemPrompt, userPrompt) {
  * Call Google Gemini API (Gemini 2.5 Flash).
  * Splits headlines into small batches to stay within free tier token limits.
  */
-async function callGemini(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result") {
+async function callGemini(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result", lang = "auto") {
   const allResults = [];
   console.debug(`[Unbait] Gemini: processing ${headlines.length} headlines in ${Math.ceil(headlines.length / CONFIG.GEMINI_BATCH_SIZE)} batches`);
 
   for (let i = 0; i < headlines.length; i += CONFIG.GEMINI_BATCH_SIZE) {
     const batch = headlines.slice(i, i + CONFIG.GEMINI_BATCH_SIZE);
-    const { systemPrompt, userPrompt } = buildPrompts(batch, mode);
+    const { systemPrompt, userPrompt } = buildPrompts(batch, mode, lang);
 
     // Wait between batches (not before the first one)
     if (i > 0) await new Promise((r) => setTimeout(r, CONFIG.GEMINI_BATCH_DELAY_MS));
@@ -1062,4 +1099,244 @@ async function callGemini(apiKey, headlines, tabId, mode = "news", streamAction 
   }
 
   return { results: allResults };
+}
+
+// ---------------------------------------------------------------------------
+// Gist: Summarize article/video (AI summary with verdict)
+// ---------------------------------------------------------------------------
+
+const GIST_CONFIG = {
+  CLAUDE_MAX_TOKENS: 1024,
+  OPENAI_MAX_TOKENS: 1024,
+  GEMINI_MAX_TOKENS: 2048,
+};
+
+const LANGUAGE_INSTRUCTIONS = {
+  auto: "Write in the same language as the content. Dutch article → Dutch. English → English.",
+  nl: "Always write in Dutch (Nederlands), regardless of the content's language.",
+  en: "Always write in English, regardless of the content's language.",
+  de: "Always write in German (Deutsch), regardless of the content's language.",
+  fr: "Always write in French (Français), regardless of the content's language.",
+  es: "Always write in Spanish (Español), regardless of the content's language.",
+};
+
+const VERDICT_LABELS = {
+  auto: '🟢 **Watch** or 🟢 **Read** (adapt label to content language), 🟡 **Optional**, 🔴 **Skip**',
+  nl: '🟢 **Bekijken** or 🟢 **Lezen**, 🟡 **Optioneel**, 🔴 **Overslaan**',
+  en: '🟢 **Watch** or 🟢 **Read**, 🟡 **Optional**, 🔴 **Skip**',
+  de: '🟢 **Ansehen** or 🟢 **Lesen**, 🟡 **Optional**, 🔴 **Überspringen**',
+  fr: '🟢 **Regarder** or 🟢 **Lire**, 🟡 **Optionnel**, 🔴 **Ignorer**',
+  es: '🟢 **Ver** or 🟢 **Leer**, 🟡 **Opcional**, 🔴 **Omitir**',
+};
+
+async function buildSummaryPrompt(title, content) {
+  const data = await chrome.storage.local.get("summaryLanguage");
+  const lang = data.summaryLanguage || "auto";
+  const langInstruction = LANGUAGE_INSTRUCTIONS[lang] || LANGUAGE_INSTRUCTIONS.auto;
+  const verdictLabels = VERDICT_LABELS[lang] || VERDICT_LABELS.auto;
+
+  const titleOnlyExtra = content
+    ? ""
+    : `\n- You only have the title — no transcript or article text. Give your best verdict based on the title alone. Do NOT mention the lack of content or transcript. Just judge it.`;
+
+  const systemPrompt = `You are an assistant that evaluates and summarizes articles and videos. Give a "gist" — a short, honest verdict on whether something is worth your time.
+
+FORMAT (follow exactly):
+1. First line: verdict emoji + bold label + short reason
+   - Use exactly one of: ${verdictLabels}
+   - Followed by " | " and a short reason (e.g. entertaining, informative, just a press release)
+2. Empty line, then 1–3 sentences summarizing what this is likely about, based on the title and content.
+3. Empty line, then "**Key points:** " followed by (1), (2), etc. — the most important facts or likely takeaways. If the content includes timestamp markers like [1:23], add the timestamp after the key point in parentheses, e.g. "(1) The main argument is X (2:14)".
+
+RULES:
+- ${langInstruction}
+- Be honest and direct. If it's clickbait or adds little value, say so.
+- Content that mainly repeats a press release or lacks analysis → 🔴 Skip
+- Content that is entertaining, funny, or surprising → 🟢 Watch/Read
+- Content that has useful info but isn't essential → 🟡 Optional
+- Start DIRECTLY with the verdict. No intro phrases.
+- Keep it short: max 150 words total.${titleOnlyExtra}`;
+
+  const userPrompt = content
+    ? `Title: "${title}"\nContent: "${content.substring(0, 10000)}"\n\nGive the gist.`
+    : `Title: "${title}"\n\nGive the gist.`;
+
+  return { systemPrompt, userPrompt };
+}
+
+async function handleSummarizeArticle(message, tabId) {
+  try {
+    const { url, title, context } = message;
+    let articleContext = context || "";
+    if (!articleContext && url) articleContext = await fetchArticleContext(url);
+
+    const data = await chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini"]);
+    const provider = data.provider || "anthropic";
+    const apiKey = data[`apiKey_${provider}`];
+    if (!apiKey) { sendGistResult(tabId, url, { error: "No API key set. Open the Unbait popup." }); return; }
+
+    const { systemPrompt, userPrompt } = await buildSummaryPrompt(title, articleContext || null);
+    const result = await callProviderForSummary(provider, apiKey, systemPrompt, userPrompt, tabId, url);
+    sendGistResult(tabId, url, result);
+  } catch (err) {
+    sendGistResult(tabId, message.url, { error: err.message });
+  }
+}
+
+async function handleSummarizeYouTube(message, tabId) {
+  try {
+    const { url, title, transcript } = message;
+    const hasTranscript = !!transcript;
+
+    const data = await chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini"]);
+    const provider = data.provider || "anthropic";
+    const apiKey = data[`apiKey_${provider}`];
+    if (!apiKey) { sendGistResult(tabId, url, { error: "No API key set. Open the Unbait popup.", hasTranscript }); return; }
+
+    const { systemPrompt, userPrompt } = await buildSummaryPrompt(title, transcript || null);
+    const result = await callProviderForSummary(provider, apiKey, systemPrompt, userPrompt, tabId, url);
+    sendGistResult(tabId, url, { ...result, hasTranscript });
+  } catch (err) {
+    sendGistResult(tabId, message.url, { error: err.message, hasTranscript: false });
+  }
+}
+
+function sendGistResult(tabId, url, result) {
+  if (!tabId) return;
+  if (result && result.summary && !result.error) incrementStats("totalGists", 1);
+  chrome.tabs.sendMessage(tabId, { action: "gist-result", url, ...result }).catch(() => {});
+}
+
+function sendGistStreamChunk(tabId, url, text) {
+  if (!tabId) return;
+  chrome.tabs.sendMessage(tabId, { action: "gist-stream", url, text }).catch(() => {});
+}
+
+async function fetchArticleContext(url) {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CONFIG.CONTEXT_TIMEOUT_MS);
+    const resp = await fetch(url, { signal: controller.signal, credentials: "omit", referrer: "" });
+    clearTimeout(timeoutId);
+    if (!resp.ok) return "";
+    const contentType = resp.headers.get("content-type") || "";
+    if (!contentType.includes("text/html") && !contentType.includes("text/xml") && !contentType.includes("application/xhtml")) return "";
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let html = "";
+    let bytesRead = 0;
+    while (bytesRead < CONFIG.CONTEXT_MAX_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      html += decoder.decode(value, { stream: true });
+      bytesRead += value.length;
+    }
+    reader.cancel();
+    return extractContext(html);
+  } catch { return ""; }
+}
+
+async function callProviderForSummary(provider, apiKey, systemPrompt, userPrompt, tabId, url) {
+  switch (provider) {
+    case "openai": return await callOpenAIForSummary(apiKey, systemPrompt, userPrompt, tabId, url);
+    case "gemini": return await callGeminiForSummary(apiKey, systemPrompt, userPrompt, tabId, url);
+    case "anthropic":
+    default: return await callClaudeForSummary(apiKey, systemPrompt, userPrompt, tabId, url);
+  }
+}
+
+async function callClaudeForSummary(apiKey, systemPrompt, userPrompt, tabId, url) {
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey, "anthropic-version": "2023-06-01",
+        "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001", max_tokens: GIST_CONFIG.CLAUDE_MAX_TOKENS, stream: true,
+        system: systemPrompt, messages: [{ role: "user", content: userPrompt }],
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      if (response.status === 401) return { error: "Invalid API key." };
+      if (response.status === 429) return { error: "Rate limit reached. Try again later." };
+      return { error: `API error (${response.status}): ${err.error?.message || "Unknown error"}` };
+    }
+    return await readSSEStreamText(response, (event) =>
+      event.type === "content_block_delta" ? event.delta?.text : null, tabId, url);
+  } catch (err) { return { error: `Error: ${err.message}` }; }
+}
+
+async function callOpenAIForSummary(apiKey, systemPrompt, userPrompt, tabId, url) {
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-4o-mini", stream: true, temperature: 0.3,
+        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      if (response.status === 401) return { error: "Invalid OpenAI API key." };
+      if (response.status === 429) return { error: "Rate limit reached." };
+      return { error: `OpenAI error (${response.status}): ${err.error?.message || "Unknown error"}` };
+    }
+    return await readSSEStreamText(response, (event) =>
+      event.choices?.[0]?.delta?.content || null, tabId, url);
+  } catch (err) { return { error: `OpenAI error: ${err.message}` }; }
+}
+
+async function callGeminiForSummary(apiKey, systemPrompt, userPrompt, tabId, url) {
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ parts: [{ text: userPrompt }] }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: GIST_CONFIG.GEMINI_MAX_TOKENS },
+        }),
+      }
+    );
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      if (response.status === 400) return { error: "Invalid Gemini API key." };
+      if (response.status === 429) return { error: "Gemini rate limit reached." };
+      return { error: `Gemini error (${response.status}): ${err?.error?.message || "Unknown error"}` };
+    }
+    const data = await response.json();
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    let text = "";
+    for (const part of parts) { if (part.text) text = part.text; }
+    if (!text) return { error: "Gemini returned an empty response." };
+    sendGistStreamChunk(tabId, url, text);
+    return { summary: text };
+  } catch (err) { return { error: `Gemini error: ${err.message}` }; }
+}
+
+async function readSSEStreamText(response, extractDelta, tabId, url) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let fullText = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    for (const line of chunk.split("\n")) {
+      if (!line.startsWith("data: ")) continue;
+      const d = line.slice(6);
+      if (d === "[DONE]") continue;
+      try {
+        const event = JSON.parse(d);
+        const delta = extractDelta(event);
+        if (delta) { fullText += delta; sendGistStreamChunk(tabId, url, fullText); }
+      } catch { /* not valid JSON yet */ }
+    }
+  }
+  return { summary: fullText };
 }

@@ -1,56 +1,30 @@
 SHORT DESCRIPTION (132 chars max):
-Replace clickbait headlines on news sites and YouTube with clear, accurate titles using AI. See what content is really about.
+De-clickbait headlines and get AI summaries on news sites and YouTube. See what content is really about.
 
 ---
 
 FULL DESCRIPTION:
 
-Tired of vague, curiosity-driven headlines that hide what an article or video is actually about? Unbait reads the article — or analyzes the YouTube transcript — and rewrites the title so you can tell at a glance whether it's worth your time.
+Tired of clickbait? Unbait uses AI to automatically detect and replace sensationalized headlines with clear, accurate, and informative titles. So you always know what you're clicking on.
 
-HOW IT WORKS
+Click any headline for an instant AI-powered verdict: worth reading, optional, or skip, so you can decide in seconds whether something deserves your time.
+
+- Works on major news sites, tech blogs, YouTube, and content aggregators
+- Gist summaries: one-click AI verdict on any article or video
+- YouTube summaries use the actual video transcript for accurate assessments
+- Powered by your choice of AI provider (Google Gemini, OpenAI, or Anthropic)
+- Replaces misleading headlines in real-time as you browse
+- Click any rewritten title to see the original
+- Always On mode: auto-rewrite your favorite sites
+- Neutral thumbnails: replace clickbait YouTube thumbnails with real video frames
+- Language setting: get titles and summaries in your preferred language
+- Lightweight and privacy-friendly: no data is stored or shared
+
+How it works:
 1. Click the Unbait icon or enable Always On for your favorite sites
-2. Unbait scans the page for headlines and briefly reads each article (or fetches the YouTube transcript)
+2. Unbait scans headlines and briefly reads each article (or fetches the YouTube transcript)
 3. Your AI rewrites vague or misleading titles into clear, specific ones
-4. Good headlines are left untouched
+Good headlines stay untouched
+4. Click any headline icon for an instant AI summary with a verdict
 
-EXAMPLES
-Before: "You won't believe what this phone can do now"
-After: "Galaxy S26 adds real-time language translation to phone calls"
-
-Before: "This clever trick makes your laptop last way longer"
-After: "macOS 17 reduces background energy use by 40%"
-
-FEATURES
-- Choose your AI: works with Anthropic Claude, OpenAI GPT, or Google Gemini
-- Bring your own API key: no subscriptions, no middleman
-- YouTube support: rewrites video titles using transcript analysis
-- Neutral thumbnails: replaces sensationalized YouTube thumbnails with neutral video frames
-- Transcript depth slider: configure how much of the video transcript your AI reads (1–8 minutes)
-- Always On mode: auto-rewrite headlines on your favorite sites
-- One-click toggle: see the original title anytime
-- Smart caching: revisiting a page is instant, no extra API calls
-- Privacy first: your API key stays local, articles go directly to your AI provider
-- Works on YouTube, news sites, tech blogs, and content aggregators
-
-PRIVACY
-Unbait does not collect any data. There are no Unbait servers. Your API key is stored locally in your browser. Article text is sent directly to your chosen AI provider over HTTPS. Full privacy policy: https://unbait.link/privacy
-
-GETTING STARTED
-1. Install the extension
-2. Get an API key from Anthropic, OpenAI, or Google
-3. Click the Unbait icon, paste your key, and click "Unbait!"
-
-SPEED
-Typical time per title rewrite:
-- Anthropic Claude Haiku: ~5s (news), ~12s (YouTube)
-- OpenAI GPT-4o mini: ~7s (news), ~15s (YouTube)
-- Google Gemini Flash: ~10s (news), ~22s (YouTube)
-
-COST
-Unbait itself is free and open source. You pay your AI provider directly:
-- Anthropic Claude Haiku: < $0.01 per page, < $0.01 per 15 YouTube videos
-- OpenAI GPT-4o mini: < $0.01 per page, < $0.01 per 15 YouTube videos
-- Google Gemini Flash: free tier available (20 pages/day)
-
-SOURCE CODE
-Unbait is fully open source: https://github.com/jorgvreeswijk/unbait
+Bring your own API key: choose between Google Gemini (free tier available), OpenAI, or Anthropic Claude.

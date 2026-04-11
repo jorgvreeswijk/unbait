@@ -4,31 +4,21 @@ if (window.__unbaitLoaded) {
 } else {
 window.__unbaitLoaded = true;
 
-let _isProcessing = false;
-let _rewriteResolve = null;
+// Module state — grouped for readability
+const _state = {
+  isProcessing: false,
+  rewriteResolve: null,
+  // Store original/new titles keyed by URL — survives React re-renders
+  titles: new Map(),
+  // Track elements and applied results
+  elements: new Map(),
+  applied: new Set(),
+  // Click discrimination for single/double click on icons
+  clickTimer: null,
+  clickTarget: null,
+};
 
-// Store original/new titles keyed by URL — survives React re-renders
-const _unbaitTitles = new Map();
-
-// Gist summary state
-let _gistEnabled = true;
-let _gistClickMode = "summary"; // "summary" = single click shows gist, "title" = single click toggles title
-let _gistActiveOverlay = null;
-let _gistActiveUrl = null;
-let _gistActiveIconEl = null;
-let _gistPendingRequests = new Set();
-let _gistCacheWriteQueue = Promise.resolve();
-
-chrome.storage.local.get(["gistEnabled", "gistClickMode"], (data) => {
-  _gistEnabled = data.gistEnabled !== false;
-  _gistClickMode = data.gistClickMode || "summary";
-});
-
-// Event delegation for icon clicks — survives DOM replacement
-// When gist is enabled: single click = gist overlay, double click = toggle title
-// When gist is disabled: click = toggle title (current behavior)
-let _clickTimer = null;
-let _clickTarget = null;
+// Gist state is managed by shared.js (window.Unbait)
 
 document.addEventListener("click", (e) => {
   // Handle G-icon clicks (gist-only headlines without de-clickbaited title)
@@ -45,7 +35,7 @@ document.addEventListener("click", (e) => {
   e.preventDefault();
   e.stopPropagation();
 
-  if (!_gistEnabled) {
+  if (!Unbait.gistEnabled) {
     // Gist off: immediate toggle (current behavior)
     const el = icon.closest(".unbait-replaced");
     if (el) toggleTitle(el, icon);
@@ -53,26 +43,26 @@ document.addEventListener("click", (e) => {
   }
 
   // Gist on: single/double click discrimination
-  if (_clickTimer && _clickTarget === icon) {
+  if (_state.clickTimer && _state.clickTarget === icon) {
     // Second click within 250ms → double click
-    clearTimeout(_clickTimer);
-    _clickTimer = null;
-    _clickTarget = null;
+    clearTimeout(_state.clickTimer);
+    _state.clickTimer = null;
+    _state.clickTarget = null;
     const el = icon.closest(".unbait-replaced");
     if (el) {
-      if (_gistClickMode === "title") handleGistClick(el, icon);
+      if (Unbait.gistClickMode === "title") handleGistClick(el, icon);
       else toggleTitle(el, icon);
     }
   } else {
     // First click → wait 250ms for potential second click
-    _clickTarget = icon;
-    _clickTimer = setTimeout(() => {
-      _clickTimer = null;
-      _clickTarget = null;
+    _state.clickTarget = icon;
+    _state.clickTimer = setTimeout(() => {
+      _state.clickTimer = null;
+      _state.clickTarget = null;
       // Single click
       const el = icon.closest(".unbait-replaced");
       if (el) {
-        if (_gistClickMode === "title") toggleTitle(el, icon);
+        if (Unbait.gistClickMode === "title") toggleTitle(el, icon);
         else handleGistClick(el, icon);
       }
     }, 250);
@@ -90,16 +80,16 @@ document.addEventListener("keydown", (e) => {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === "de-clickbait") {
-    if (_isProcessing) {
+    if (_state.isProcessing) {
       sendResponse({ error: "Already processing, please wait." });
       return true;
     }
-    _isProcessing = true;
+    _state.isProcessing = true;
     processHeadlines().then((result) => {
-      _isProcessing = false;
+      _state.isProcessing = false;
       sendResponse(result);
     }).catch((err) => {
-      _isProcessing = false;
+      _state.isProcessing = false;
       sendResponse({ error: err.message });
     });
     return true; // async response
@@ -109,7 +99,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message.action === "rewrite-complete") {
     // Final results from service worker (Safari-compatible path)
-    _isProcessing = false;
+    _state.isProcessing = false;
     const result = message.result;
     if (result && result.results) {
       for (const r of result.results) {
@@ -117,11 +107,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
     }
     // Resolve the pending promise if any
-    if (_rewriteResolve) {
+    if (_state.rewriteResolve) {
       const found = message.found || 0;
-      _rewriteResolve({ success: true, found, count: _unbaitApplied.size });
-      _rewriteResolve = null;
+      _state.rewriteResolve({ success: true, found, count: _state.applied.size });
+      _state.rewriteResolve = null;
     }
+    // Update badge with total unbaited on page (incl. cached)
+    notifyBadgeCount();
   }
   if (message.action === "gist-stream") {
     handleGistStream(message);
@@ -132,14 +124,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === "get-stats") {
     const replaced = document.querySelectorAll(".unbait-replaced").length;
     const icons = document.querySelectorAll(".unbait-icon").length;
-    sendResponse({ found: (replaced + icons) > 0 ? _unbaitElements.size || replaced : 0, count: replaced });
+    sendResponse({ found: (replaced + icons) > 0 ? _state.elements.size || replaced : 0, count: replaced });
   }
 });
 
 // Restore cached titles after back/forward navigation
 // MutationObserver: detect when React/frameworks replace our modified elements
-// and re-apply titles from the _unbaitTitles Map
-const _unbaitObserver = new MutationObserver((mutations) => {
+// and re-apply titles from the _state.titles Map
+if (window.__unbaitObserver) window.__unbaitObserver.disconnect();
+window.__unbaitObserver = new MutationObserver((mutations) => {
   for (const mutation of mutations) {
     // Check removed nodes — if a replaced headline was removed, the framework
     // likely replaced it with a fresh node. Find the new node by URL and re-apply.
@@ -150,7 +143,7 @@ const _unbaitObserver = new MutationObserver((mutations) => {
         : Array.from(removed.querySelectorAll?.(".unbait-replaced") || []);
       for (const oldEl of replaced) {
         const url = oldEl.dataset.unbaitUrl;
-        const stored = url && _unbaitTitles.get(url);
+        const stored = url && _state.titles.get(url);
         if (!stored) continue;
         // Find the new element by matching URL in the current DOM
         requestAnimationFrame(() => {
@@ -167,7 +160,7 @@ const _unbaitObserver = new MutationObserver((mutations) => {
     }
   }
 });
-_unbaitObserver.observe(document.body, { childList: true, subtree: true });
+window.__unbaitObserver.observe(document.body, { childList: true, subtree: true });
 
 // Multiple strategies because Safari is inconsistent about which events fire:
 
@@ -178,14 +171,14 @@ window.addEventListener("pageshow", (event) => {
 
 // Strategy 2: popstate (fires on back/forward in most browsers)
 window.addEventListener("popstate", () => {
-  if (!_isProcessing) restoreCachedTitles();
+  if (!_state.isProcessing) restoreCachedTitles();
 });
 
 // Strategy 3: visibilitychange (fallback for Safari back-navigation)
 // Only restore when there are NO replaced elements — icons on news sites are
 // stable once placed and do not need re-adding on every focus switch.
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && !_isProcessing) {
+  if (document.visibilityState === "visible" && !_state.isProcessing) {
     const hasUnbaitElements = document.querySelector(".unbait-replaced");
     if (!hasUnbaitElements) {
       restoreCachedTitles();
@@ -196,7 +189,7 @@ document.addEventListener("visibilitychange", () => {
 // Auto-restore cached titles on page load (for back navigation without bfcache)
 // Only if not about to receive a de-clickbait message (small delay to let popup send first)
 setTimeout(() => {
-  if (!_isProcessing) restoreCachedTitles();
+  if (!_state.isProcessing) restoreCachedTitles();
 }, 200);
 
 /**
@@ -213,7 +206,7 @@ async function restoreCachedTitles() {
     const headlines = findHeadlines();
     if (headlines.length === 0) { _isRestoring = false; return; }
 
-    const provider = await getCurrentProvider();
+    const provider = await Unbait.Unbait.getCurrentProvider();
     const cache = await getCache(provider);
     if (!cache || Object.keys(cache).length === 0) {
       injectGistIcons();
@@ -243,10 +236,19 @@ async function restoreCachedTitles() {
     }
     // Inject G-icons on headlines without U-icons
     injectGistIcons();
+    // Update badge with total unbaited on page (incl. cached)
+    notifyBadgeCount();
   } catch {
     // Silently fail — this is a best-effort restore
   } finally {
     _isRestoring = false;
+  }
+}
+
+function notifyBadgeCount() {
+  const count = document.querySelectorAll(".unbait-replaced").length;
+  if (count > 0) {
+    chrome.runtime.sendMessage({ action: "update-badge-count", count }).catch(() => {});
   }
 }
 
@@ -401,63 +403,17 @@ async function enrichHeadlinesWithContext(headlines) {
   return results;
 }
 
-// Global maps to track elements and applied results
-const _unbaitElements = new Map();
-const _unbaitApplied = new Set();
+// _state.elements and _state.applied track elements and applied results
 
-// Serialized cache write queue
-let _cacheWriteQueue = Promise.resolve();
+// Cache prefix for news content
+const CACHE_PREFIX = "unbait_cache_";
 
-function cacheKeyForProvider(provider) {
-  return `unbait_cache_${provider || "anthropic"}`;
+function getCache(provider) {
+  return Unbait.getCache(CACHE_PREFIX, provider);
 }
 
-async function getCurrentProvider() {
-  const data = await chrome.storage.local.get("provider");
-  return data.provider || "anthropic";
-}
-
-async function getCache(provider) {
-  if (!provider) provider = await getCurrentProvider();
-  const key = cacheKeyForProvider(provider);
-  const data = await chrome.storage.local.get(key);
-  return data[key] || {};
-}
-
-async function setCacheEntries(entries, provider) {
-  _cacheWriteQueue = _cacheWriteQueue.then(async () => {
-    if (!provider) provider = await getCurrentProvider();
-    const key = cacheKeyForProvider(provider);
-    const cache = await getCache(provider);
-    const now = Date.now();
-
-    // Add new entries
-    for (const [url, value] of Object.entries(entries)) {
-      if (typeof value === "string") {
-        // Legacy format: just newTitle string
-        cache[url] = { newTitle: value, ts: now };
-      } else {
-        // New format: { newTitle, originalTitle }
-        cache[url] = { newTitle: value.newTitle, originalTitle: value.originalTitle, ts: now };
-      }
-    }
-
-    // Prune expired entries
-    for (const [url, entry] of Object.entries(cache)) {
-      if (now - entry.ts > CONFIG.CACHE_MAX_AGE_MS) {
-        delete cache[url];
-      }
-    }
-
-    // Cap cache size
-    const cacheEntries = Object.entries(cache);
-    if (cacheEntries.length > CONFIG.CACHE_MAX_ENTRIES) {
-      cacheEntries.sort((a, b) => a[1].ts - b[1].ts);
-      cacheEntries.slice(0, cacheEntries.length - CONFIG.CACHE_MAX_ENTRIES).forEach(([url]) => delete cache[url]);
-    }
-
-    await chrome.storage.local.set({ [key]: cache });
-  });
+function setCacheEntries(entries, provider) {
+  Unbait.setCacheEntries(entries, CACHE_PREFIX, CONFIG.CACHE_MAX_AGE_MS, CONFIG.CACHE_MAX_ENTRIES, provider);
 }
 
 /**
@@ -470,7 +426,7 @@ async function loadCache(provider) {
   const oldData = await chrome.storage.local.get("unbait_cache");
   if (oldData.unbait_cache && Object.keys(oldData.unbait_cache).length > 0) {
     const oldCache = oldData.unbait_cache;
-    await setCacheEntries(
+    setCacheEntries(
       Object.fromEntries(Object.entries(oldCache).map(([url, entry]) => [url, entry.newTitle])),
       "anthropic"
     );
@@ -493,7 +449,7 @@ function categorizeHeadlines(headlines, cache) {
 
   headlines.forEach((item, index) => {
     const id = `headline-${index}`;
-    _unbaitElements.set(id, item.element);
+    _state.elements.set(id, item.element);
     // Only set original if not already stored (defense against race conditions)
     if (!item.element.dataset.unbaitOriginal) {
       item.element.dataset.unbaitOriginal = item.text;
@@ -502,7 +458,7 @@ function categorizeHeadlines(headlines, cache) {
     // Check cache by article URL
     const cached = cache[item.url];
     if (cached && Date.now() - cached.ts < CONFIG.CACHE_MAX_AGE_MS) {
-      _unbaitApplied.add(id);
+      _state.applied.add(id);
       if (cached.newTitle) {
         renderReplacedHeadline(item.element, cached.newTitle, cached.originalTitle || item.text);
         cachedCount++;
@@ -525,7 +481,7 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
 
     // Create a promise that resolves when rewrite-complete is received
     const completePromise = new Promise((resolve) => {
-      _rewriteResolve = resolve;
+      _state.rewriteResolve = resolve;
     });
 
     let response;
@@ -535,7 +491,7 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
         headlines: uncachedData,
       });
     } catch (e) {
-      _rewriteResolve = null;
+      _state.rewriteResolve = null;
       throw e;
     }
 
@@ -547,25 +503,25 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
         completePromise,
         new Promise((resolve) =>
           setTimeout(() => {
-            _rewriteResolve = null;
-            resolve({ success: true, found: totalFound, count: _unbaitApplied.size });
+            _state.rewriteResolve = null;
+            resolve({ success: true, found: totalFound, count: _state.applied.size });
           }, CONFIG.API_TIMEOUT_MS)
         ),
       ]);
-      _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
+      _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
       return result;
     }
 
     // Legacy path: full response returned directly (Chrome fast path)
-    _rewriteResolve = null;
+    _state.rewriteResolve = null;
 
     if (!response) {
-      _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
-      return { success: true, found: totalFound, count: _unbaitApplied.size };
+      _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
+      return { success: true, found: totalFound, count: _state.applied.size };
     }
 
     if (response.error) {
-      _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
+      _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
       return { error: response.error };
     }
 
@@ -586,16 +542,16 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
       setCacheEntries(newCacheEntries, provider);
     }
 
-    _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
+    _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
 
     let totalReplaced = 0;
-    _unbaitElements.forEach((el) => {
+    _state.elements.forEach((el) => {
       if (el.classList.contains("unbait-replaced")) totalReplaced++;
     });
 
     return { success: true, found: totalFound, count: totalReplaced };
   } catch (err) {
-    _unbaitElements.forEach((el) => el.classList.remove("unbait-loading"));
+    _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
     return { error: `Fout: ${err.message}` };
   }
 }
@@ -610,10 +566,10 @@ async function processHeadlines() {
   // Inject G-icons immediately so users can get summaries while de-clickbait loads
   injectGistIcons();
 
-  _unbaitElements.clear();
-  _unbaitApplied.clear();
+  _state.elements.clear();
+  _state.applied.clear();
 
-  const provider = await getCurrentProvider();
+  const provider = await Unbait.getCurrentProvider();
   const cache = await loadCache(provider);
   const { uncachedData, cachedCount } = categorizeHeadlines(headlines, cache);
 
@@ -749,12 +705,12 @@ function renderReplacedHeadline(el, newTitle, originalText) {
   // Preserve existing original if already set (prevents overwrite on re-render/back-nav)
   const existingOriginal = el.dataset.unbaitOriginal;
   const url = el.closest("a")?.href || el.querySelector("a")?.href;
-  const mapOriginal = url && _unbaitTitles.get(url)?.original;
+  const mapOriginal = url && _state.titles.get(url)?.original;
   const trueOriginal = existingOriginal || mapOriginal || originalText;
 
   // Store in Map keyed by URL — survives React DOM replacement
   if (url) {
-    _unbaitTitles.set(url, { original: trueOriginal, rewritten: newTitle });
+    _state.titles.set(url, { original: trueOriginal, rewritten: newTitle });
   }
 
   el.classList.add("unbait-replaced");
@@ -815,10 +771,10 @@ function renderReplacedHeadline(el, newTitle, originalText) {
  */
 function applyResult(result) {
   // Prevent double-application (streaming + batch can both fire)
-  if (_unbaitApplied.has(result.id)) return false;
-  _unbaitApplied.add(result.id);
+  if (_state.applied.has(result.id)) return false;
+  _state.applied.add(result.id);
 
-  const el = _unbaitElements.get(result.id);
+  const el = _state.elements.get(result.id);
   if (!el) return false;
 
   el.classList.remove("unbait-loading");
@@ -837,7 +793,7 @@ function applyResult(result) {
  */
 function applyStreamResult(result) {
   if (applyResult(result)) {
-    const el = _unbaitElements.get(result.id);
+    const el = _state.elements.get(result.id);
     if (el) {
       const url = el.closest("a")?.href || el.querySelector("a")?.href;
       if (url && result.newTitle) {
@@ -858,7 +814,7 @@ function toggleTitle(el, icon) {
 
   if (!original || !rewritten) {
     const url = el.dataset.unbaitUrl || el.closest("a")?.href;
-    const stored = url && _unbaitTitles.get(url);
+    const stored = url && _state.titles.get(url);
     if (stored) {
       original = stored.original;
       rewritten = stored.rewritten;
@@ -890,207 +846,33 @@ function toggleTitle(el, icon) {
 }
 
 // ---------------------------------------------------------------------------
-// Gist: overlay, rendering, cache, click handler
+// Gist: cache prefix, click handler (news-specific)
 // ---------------------------------------------------------------------------
 
-function gistRenderVerdictBadge(container, line) {
-  const badge = document.createElement("div");
-  let color = "green";
-  if (line.startsWith("\ud83d\udfe1")) color = "yellow";
-  else if (line.startsWith("\ud83d\udd34")) color = "red";
-  badge.className = `gist-verdict-badge ${color}`;
+const GIST_CACHE_PREFIX = "gist_cache_";
 
-  const dot = document.createElement("span");
-  dot.className = "gist-verdict-dot";
-  badge.appendChild(dot);
-
-  const content = line.slice(2).trim();
-  const sepIdx = content.indexOf(" | ");
-  const rawLabel = sepIdx >= 0 ? content.slice(0, sepIdx) : content;
-  const reason = sepIdx >= 0 ? content.slice(sepIdx + 3) : "";
-  const labelMatch = rawLabel.match(/\*\*([^*]+)\*\*/);
-  const labelText = labelMatch ? labelMatch[1] : rawLabel;
-
-  const label = document.createElement("span");
-  label.className = "gist-verdict-label";
-  label.textContent = labelText;
-  badge.appendChild(label);
-
-  if (reason) {
-    const divider = document.createElement("div");
-    divider.className = "gist-verdict-divider";
-    badge.appendChild(divider);
-    const reasonEl = document.createElement("span");
-    reasonEl.className = "gist-verdict-reason";
-    reasonEl.textContent = reason;
-    badge.appendChild(reasonEl);
-  }
-  container.appendChild(badge);
-}
-
-function gistRenderText(container, text) {
-  container.textContent = "";
-  const lines = text.split("\n");
-  let currentP = null;
-
-  const verdictIdx = lines.findIndex((l) => /^(\ud83d\udfe2|\ud83d\udfe1|\ud83d\udd34)/.test(l.trim()));
-  if (verdictIdx >= 0) gistRenderVerdictBadge(container, lines[verdictIdx].trim());
-
-  for (let li = 0; li < lines.length; li++) {
-    const line = lines[li];
-    if (li === verdictIdx) continue;
-    if (line.trim() === "") { currentP = null; continue; }
-    if (!currentP) {
-      currentP = document.createElement("p");
-      container.appendChild(currentP);
-    } else {
-      currentP.appendChild(document.createElement("br"));
-    }
-    const parts = line.split(/(\*\*[^*]+\*\*)/g);
-    for (const part of parts) {
-      if (part.startsWith("**") && part.endsWith("**")) {
-        const strong = document.createElement("strong");
-        strong.textContent = part.slice(2, -2);
-        currentP.appendChild(strong);
-      } else {
-        currentP.appendChild(document.createTextNode(part));
-      }
-    }
-  }
-}
-
-function gistShowOverlay(iconEl, url) {
-  gistCloseOverlay();
-  _gistActiveUrl = url;
-  _gistActiveIconEl = iconEl;
-
-  const overlay = document.createElement("div");
-  overlay.className = "gist-overlay";
-
-  const header = document.createElement("div");
-  header.className = "gist-overlay-header";
-  const titleEl = document.createElement("span");
-  titleEl.className = "gist-overlay-title";
-  titleEl.textContent = "Gist";
-  const closeBtn = document.createElement("button");
-  closeBtn.className = "gist-overlay-close";
-  closeBtn.textContent = "\u00d7";
-  closeBtn.addEventListener("click", gistCloseOverlay);
-  header.appendChild(titleEl);
-  header.appendChild(closeBtn);
-
-  const body = document.createElement("div");
-  body.className = "gist-overlay-body";
-  const loading = document.createElement("div");
-  loading.className = "gist-overlay-loading";
-  body.appendChild(loading);
-
-  const footer = document.createElement("div");
-  footer.className = "gist-overlay-footer";
-  try { footer.textContent = new URL(url).hostname; } catch { footer.textContent = ""; }
-
-  overlay.appendChild(header);
-  overlay.appendChild(body);
-  overlay.appendChild(footer);
-  document.body.appendChild(overlay);
-  _gistActiveOverlay = overlay;
-
-  gistPositionOverlay(overlay, iconEl);
-  document.addEventListener("keydown", _gistEscHandler);
-  window.addEventListener("scroll", _gistScrollHandler, { passive: true, capture: true });
-  setTimeout(() => document.addEventListener("click", _gistOutsideClickHandler), 100);
-}
-
-function gistCloseOverlay() {
-  if (_gistActiveOverlay) { _gistActiveOverlay.remove(); _gistActiveOverlay = null; _gistActiveUrl = null; _gistActiveIconEl = null; }
-  document.removeEventListener("keydown", _gistEscHandler);
-  document.removeEventListener("click", _gistOutsideClickHandler);
-  window.removeEventListener("scroll", _gistScrollHandler, { capture: true });
-}
-
-function _gistEscHandler(e) { if (e.key === "Escape") gistCloseOverlay(); }
-function _gistOutsideClickHandler(e) {
-  if (_gistActiveOverlay && !_gistActiveOverlay.contains(e.target) && !e.target.classList.contains("unbait-icon")) gistCloseOverlay();
-}
-let _gistScrollTimer = null;
-function _gistScrollHandler() {
-  if (!_gistActiveOverlay || !_gistActiveIconEl) return;
-  if (_gistScrollTimer) clearTimeout(_gistScrollTimer);
-  _gistScrollTimer = setTimeout(() => {
-    if (_gistActiveOverlay && _gistActiveIconEl) gistPositionOverlay(_gistActiveOverlay, _gistActiveIconEl);
-  }, 50);
-}
-
-function gistPositionOverlay(overlay, iconEl) {
-  const rect = iconEl.getBoundingClientRect();
-  const pad = 8;
-  const ow = 380;
-  const maxH = 450;
-  const minVisible = 200;
-  let left = rect.left;
-  if (left + ow > window.innerWidth) left = window.innerWidth - ow - pad;
-  if (left < pad) left = pad;
-  overlay.style.left = left + "px";
-  const spaceBelow = window.innerHeight - rect.bottom - pad;
-  const spaceAbove = rect.top - pad;
-  if (spaceBelow >= maxH || (spaceBelow >= minVisible && spaceBelow >= spaceAbove)) {
-    // Below the icon — enough room, or more room than above
-    overlay.style.top = (rect.bottom + pad) + "px";
-    overlay.style.bottom = "";
-    overlay.style.maxHeight = Math.min(maxH, spaceBelow) + "px";
-  } else {
-    // Above the icon — anchor bottom edge just above the icon, grows upward
-    overlay.style.top = "";
-    overlay.style.bottom = (window.innerHeight - rect.top + pad) + "px";
-    overlay.style.maxHeight = Math.min(maxH, spaceAbove) + "px";
-  }
-}
-
-// Gist cache
-async function getGistCache(url) {
-  const data = await chrome.storage.local.get("provider");
-  const provider = data.provider || "anthropic";
-  const cacheKey = `gist_cache_${provider}`;
-  const cacheData = await chrome.storage.local.get(cacheKey);
-  const cache = cacheData[cacheKey] || {};
-  const entry = cache[url];
-  if (entry && Date.now() - entry.ts < CONFIG.CACHE_MAX_AGE_MS) return entry;
-  return null;
+function getGistCache(url) {
+  return Unbait.getGistCache(url, GIST_CACHE_PREFIX);
 }
 
 function cacheGistEntry(url, summary) {
-  _gistCacheWriteQueue = _gistCacheWriteQueue.then(async () => {
-    const data = await chrome.storage.local.get("provider");
-    const provider = data.provider || "anthropic";
-    const cacheKey = `gist_cache_${provider}`;
-    const cacheData = await chrome.storage.local.get(cacheKey);
-    const cache = cacheData[cacheKey] || {};
-    cache[url] = { summary, ts: Date.now() };
-    // Prune oldest entries if over limit
-    const keys = Object.keys(cache);
-    if (keys.length > CONFIG.CACHE_MAX_ENTRIES) {
-      keys.sort((a, b) => cache[a].ts - cache[b].ts);
-      for (let i = 0; i < keys.length - CONFIG.CACHE_MAX_ENTRIES; i++) delete cache[keys[i]];
-    }
-    await chrome.storage.local.set({ [cacheKey]: cache });
-  }).catch(() => {});
+  Unbait.cacheGistEntry(url, summary, GIST_CACHE_PREFIX, CONFIG.CACHE_MAX_ENTRIES);
 }
 
 // Gist stream/result handlers
 function handleGistStream(message) {
-  if (message.url !== _gistActiveUrl || !_gistActiveOverlay) return;
-  const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
-  if (body) gistRenderText(body, message.text);
+  if (message.url !== Unbait.gistActiveUrl || !Unbait.gistActiveOverlay) return;
+  const body = Unbait.gistActiveOverlay.querySelector(".gist-overlay-body");
+  if (body) Unbait.gistRenderText(body, message.text);
 }
 
 function handleGistResult(message) {
-  _gistPendingRequests.delete(message.url);
-  if (message.url !== _gistActiveUrl || !_gistActiveOverlay) {
-    // Still cache even if overlay was closed
+  Unbait.gistPendingRequests.delete(message.url);
+  if (message.url !== Unbait.gistActiveUrl || !Unbait.gistActiveOverlay) {
     if (message.summary) cacheGistEntry(message.url, message.summary);
     return;
   }
-  const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
+  const body = Unbait.gistActiveOverlay.querySelector(".gist-overlay-body");
   if (!body) return;
   if (message.error) {
     body.textContent = "";
@@ -1099,7 +881,7 @@ function handleGistResult(message) {
     errP.textContent = message.error;
     body.appendChild(errP);
   } else if (message.summary) {
-    gistRenderText(body, message.summary);
+    Unbait.gistRenderText(body, message.summary);
     cacheGistEntry(message.url, message.summary);
   }
 }
@@ -1110,31 +892,31 @@ async function handleGistClick(el, icon) {
   if (!url) return;
   const title = el.dataset.unbaitOriginal || el.textContent.trim();
 
-  if (_gistActiveUrl === url && _gistActiveOverlay) { gistCloseOverlay(); return; }
+  if (Unbait.gistActiveUrl === url && Unbait.gistActiveOverlay) { Unbait.gistCloseOverlay(); return; }
 
-  gistShowOverlay(icon, url);
+  Unbait.gistShowOverlay(icon, url);
 
   // Check cache first
   const cached = await getGistCache(url);
   if (cached) {
-    if (_gistActiveOverlay && _gistActiveUrl === url) {
-      const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
-      if (body) gistRenderText(body, cached.summary);
+    if (Unbait.gistActiveOverlay && Unbait.gistActiveUrl === url) {
+      const body = Unbait.gistActiveOverlay.querySelector(".gist-overlay-body");
+      if (body) Unbait.gistRenderText(body, cached.summary);
     }
     return;
   }
 
-  if (_gistPendingRequests.has(url)) return;
-  _gistPendingRequests.add(url);
+  if (Unbait.gistPendingRequests.has(url)) return;
+  Unbait.gistPendingRequests.add(url);
 
   chrome.runtime.sendMessage({
     action: "summarize-article",
     url,
     title,
   }).catch(() => {
-    _gistPendingRequests.delete(url);
-    if (_gistActiveOverlay && _gistActiveUrl === url) {
-      const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
+    Unbait.gistPendingRequests.delete(url);
+    if (Unbait.gistActiveOverlay && Unbait.gistActiveUrl === url) {
+      const body = Unbait.gistActiveOverlay.querySelector(".gist-overlay-body");
       if (body) {
         body.textContent = "";
         const errP = document.createElement("p");
@@ -1152,31 +934,31 @@ function handleGistClickFromGIcon(gIcon) {
   const title = gIcon.dataset.gistTitle;
   if (!url || !title) return;
 
-  if (_gistActiveUrl === url && _gistActiveOverlay) { gistCloseOverlay(); return; }
+  if (Unbait.gistActiveUrl === url && Unbait.gistActiveOverlay) { Unbait.gistCloseOverlay(); return; }
 
-  gistShowOverlay(gIcon, url);
+  Unbait.gistShowOverlay(gIcon, url);
 
   // Check cache first
   getGistCache(url).then((cached) => {
     if (cached) {
-      if (_gistActiveOverlay && _gistActiveUrl === url) {
-        const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
-        if (body) gistRenderText(body, cached.summary);
+      if (Unbait.gistActiveOverlay && Unbait.gistActiveUrl === url) {
+        const body = Unbait.gistActiveOverlay.querySelector(".gist-overlay-body");
+        if (body) Unbait.gistRenderText(body, cached.summary);
       }
       return;
     }
 
-    if (_gistPendingRequests.has(url)) return;
-    _gistPendingRequests.add(url);
+    if (Unbait.gistPendingRequests.has(url)) return;
+    Unbait.gistPendingRequests.add(url);
 
     chrome.runtime.sendMessage({
       action: "summarize-article",
       url,
       title,
     }).catch(() => {
-      _gistPendingRequests.delete(url);
-      if (_gistActiveOverlay && _gistActiveUrl === url) {
-        const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
+      Unbait.gistPendingRequests.delete(url);
+      if (Unbait.gistActiveOverlay && Unbait.gistActiveUrl === url) {
+        const body = Unbait.gistActiveOverlay.querySelector(".gist-overlay-body");
         if (body) {
           body.textContent = "";
           const errP = document.createElement("p");
@@ -1194,7 +976,7 @@ function handleGistClickFromGIcon(gIcon) {
  * Called after de-clickbait processing when gistEnabled is on.
  */
 function injectGistIcons() {
-  if (!_gistEnabled) return;
+  if (!Unbait.gistEnabled) return;
   const headlines = findHeadlines();
   for (const item of headlines) {
     const el = item.element;
@@ -1253,6 +1035,7 @@ function findHeadlines() {
     "[class*='teaser']",
     "[class*='item']",
     "[class*='feed']",
+    "[class*='ankeiler']", // DPG Media (AD.nl, Volkskrant, Trouw, Parool)
   ].join(", ");
 
   document.querySelectorAll(containerSelectors).forEach((container) => {
@@ -1260,14 +1043,33 @@ function findHeadlines() {
 
     // First try real heading elements; fall back to elements with title-like
     // classes (e.g. wielerflits.nl uses <div class="h4 list-item-title">).
-    const heading = container.querySelector("h1, h2, h3, h4, h5")
-      || container.querySelector("[class*='title']:not([class*='sub']):not([class*='caption'])");
+    // Exclude wrappers whose class only incidentally contains "title"
+    // (e.g. "has-long-title" on a wrapper div).
+    let heading = container.querySelector("h1, h2, h3, h4, h5")
+      || container.querySelector("[class*='title']:not([class*='sub']):not([class*='caption']):not([class*='wrapper'])");
+
+    // If the container IS a heading (e.g. Guardian's h3.card-headline matches
+    // [class*='card']), use the container itself as the heading and search
+    // for a link in parent elements.
+    if (!heading && /^H[1-5]$/.test(container.tagName)) {
+      heading = container;
+    }
     if (!heading) return;
 
-    const link =
+    let link =
       heading.querySelector("a") ||
       heading.closest("a") ||
       container.querySelector("a[href]");
+
+    // If no link found inside or on the container, search parent elements
+    // (Guardian pattern: link is a sibling in a grandparent container)
+    if (!link) {
+      let parent = container.parentElement;
+      for (let i = 0; i < 5 && parent && !link; i++) {
+        link = parent.querySelector("a[href]");
+        parent = parent.parentElement;
+      }
+    }
 
     if (link && isValidHeadline(heading, link, singleH1Page)) {
       addHeadline(found, seen, heading, link.href);
@@ -1275,8 +1077,24 @@ function findHeadlines() {
   });
 
   // Strategy 4: Large linked text without heading tags
+  // Also catches headline-class patterns:
+  //   CNN:       <a><div class="container__headline">...</div></a>
+  //   The Times: <a class="article-headline">...</a>
   document.querySelectorAll("a[href]").forEach((anchor) => {
     if (seen.has(anchor.href)) return;
+
+    // Check if the anchor itself or a child has a headline-like class
+    const headlineEl = anchor.matches("[class*='headline']:not([class*='sub'])")
+      ? anchor
+      : anchor.querySelector("[class*='headline']:not([class*='sub'])");
+    if (headlineEl) {
+      const text = extractTitleText(headlineEl);
+      if (text.length >= CONFIG.MIN_HEADLINE_LENGTH && text.length <= CONFIG.MAX_HEADLINE_LENGTH
+          && !isNavigationElement(anchor)) {
+        addHeadline(found, seen, headlineEl, anchor.href);
+        return;
+      }
+    }
 
     const text = extractTitleText(anchor);
     if (
@@ -1300,14 +1118,18 @@ function findHeadlines() {
  * which causes them to bleed into the title text via textContent.
  */
 function extractTitleText(element) {
+  let text;
   // Fast path: no metadata-like children present
   if (!element.querySelector("time, [class*='time'], [class*='date'], [class*='ago'], [class*='meta'], [class*='comment'], [class*='count'], [class*='react']")) {
-    return element.textContent.trim();
+    text = element.textContent;
+  } else {
+    // Clone and strip known metadata elements before reading text
+    const clone = element.cloneNode(true);
+    clone.querySelectorAll("time, [class*='time'], [class*='date'], [class*='ago'], [class*='meta'], [class*='comment'], [class*='count'], [class*='react']").forEach((n) => n.remove());
+    text = clone.textContent;
   }
-  // Clone and strip known metadata elements before reading text
-  const clone = element.cloneNode(true);
-  clone.querySelectorAll("time, [class*='time'], [class*='date'], [class*='ago'], [class*='meta'], [class*='comment'], [class*='count'], [class*='react']").forEach((n) => n.remove());
-  return clone.textContent.trim();
+  // Strip soft hyphens (used by DPG Media sites like AD.nl for responsive word-breaking)
+  return text.replace(/\u00AD/g, "").trim();
 }
 
 function addHeadline(found, seen, element, url) {

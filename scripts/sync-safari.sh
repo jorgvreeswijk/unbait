@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 SAFARI_DIR="$PROJECT_DIR/safari/Unbait/Unbait Extension/Resources"
 
-for file in background/service-worker.js content/content.js content/content.css popup/popup.js popup/popup.html popup/popup.css icons/icon-16.png icons/icon-48.png icons/icon-128.png; do
+for file in background/service-worker.js content/shared.js content/content.js content/content.css content/youtube.js popup/popup.js popup/popup.html popup/popup.css icons/icon-16.png icons/icon-48.png icons/icon-128.png; do
   cp "$PROJECT_DIR/extension/$file" "$SAFARI_DIR/$file"
 done
 

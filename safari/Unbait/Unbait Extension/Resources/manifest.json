@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Unbait",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Replace clickbait headlines on news sites and YouTube with clear, informative titles using AI",
   "permissions": [
     "storage",
@@ -27,6 +27,7 @@
     "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
+      "32": "icons/icon-48.png",
       "48": "icons/icon-48.png",
       "128": "icons/icon-128.png"
     }

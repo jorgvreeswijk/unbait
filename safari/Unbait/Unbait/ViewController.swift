@@ -9,7 +9,7 @@ import Cocoa
 import SafariServices
 import WebKit
 
-let extensionBundleIdentifier = "com.yourCompany.Unbait.Extension"
+let extensionBundleIdentifier = "link.unbait.app.Extension"
 
 class ViewController: NSViewController, WKNavigationDelegate, WKScriptMessageHandler {
 
@@ -47,9 +47,22 @@ class ViewController: NSViewController, WKNavigationDelegate, WKScriptMessageHan
             return;
         }
 
+        NSLog("Attempting to open Safari Extensions preferences for: \(extensionBundleIdentifier)")
         SFSafariApplication.showPreferencesForExtension(withIdentifier: extensionBundleIdentifier) { error in
             DispatchQueue.main.async {
-                NSApplication.shared.terminate(nil)
+                if let error = error {
+                    NSLog("Error opening Safari Extensions preferences: \(error)")
+                    let alert = NSAlert()
+                    alert.messageText = "Could not open Safari Extensions"
+                    alert.informativeText = "Extension ID: \(extensionBundleIdentifier)\nError: \(error.localizedDescription)"
+                    alert.runModal()
+                    return
+                }
+
+                NSLog("Successfully opened Safari Extensions preferences")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    NSApplication.shared.terminate(nil)
+                }
             }
         }
     }

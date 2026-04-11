@@ -15,24 +15,20 @@ if (window.__unbaitYouTubeLoaded) {
 } else {
 window.__unbaitYouTubeLoaded = true;
 
-let _ytIsProcessing = false;
-let _ytRewriteResolve = null;
-let _ytReplaceThumbnails = false;
+// Module state — grouped for readability
+const _state = {
+  isProcessing: false,
+  rewriteResolve: null,
+  replaceThumbnails: false,
+  elements: new Map(),
+  applied: new Set(),
+  observer: null,
+  observerDebounce: null,
+  scrollHandler: null,
+};
 
-// Gist summary state
-let _gistEnabled = true;
-let _gistClickMode = "summary"; // "summary" = single click shows gist, "title" = single click toggles title
-let _gistActiveOverlay = null;
-let _gistActiveUrl = null;
-let _gistActiveIconEl = null;
-let _gistPendingRequests = new Set();
-let _gistCacheWriteQueue = Promise.resolve();
+// Gist state is managed by shared.js (window.Unbait)
 const _gistTranscriptSource = new Map(); // url -> "transcript" | "title-only"
-
-chrome.storage.local.get(["gistEnabled", "gistClickMode"], (data) => {
-  _gistEnabled = data.gistEnabled !== false;
-  _gistClickMode = data.gistClickMode || "summary";
-});
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -59,18 +55,18 @@ const YT_CONFIG = {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === "de-clickbait-youtube") {
-    if (_ytIsProcessing) {
+    if (_state.isProcessing) {
       sendResponse({ error: "Already processing, please wait." });
       return true;
     }
-    _ytIsProcessing = true;
+    _state.isProcessing = true;
     processYouTubeTitles()
       .then((result) => {
-        _ytIsProcessing = false;
+        _state.isProcessing = false;
         sendResponse(result);
       })
       .catch((err) => {
-        _ytIsProcessing = false;
+        _state.isProcessing = false;
         sendResponse({ error: err.message });
       });
     return true; // async response
@@ -81,18 +77,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.action === "yt-rewrite-complete") {
-    _ytIsProcessing = false;
+    _state.isProcessing = false;
     const result = message.result;
     if (result && result.results) {
       for (const r of result.results) {
         applyResult(r);
       }
     }
-    if (_ytRewriteResolve) {
+    if (_state.rewriteResolve) {
       const found = message.found || 0;
-      _ytRewriteResolve({ success: true, found, count: _ytApplied.size });
-      _ytRewriteResolve = null;
+      _state.rewriteResolve({ success: true, found, count: _state.applied.size });
+      _state.rewriteResolve = null;
     }
+    // Update badge with total unbaited on page (incl. cached)
+    notifyBadgeCount();
   }
 
   if (message.action === "gist-stream") {
@@ -107,7 +105,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const replaced = document.querySelectorAll(".unbait-replaced").length;
     const icons = document.querySelectorAll(".unbait-icon").length;
     sendResponse({
-      found: (replaced + icons) > 0 ? _ytElements.size || replaced : 0,
+      found: (replaced + icons) > 0 ? _state.elements.size || replaced : 0,
       count: replaced,
     });
   }
@@ -122,21 +120,21 @@ window.addEventListener("pageshow", (event) => {
 });
 
 window.addEventListener("popstate", () => {
-  _ytApplied.clear();
-  if (!_ytIsProcessing) restoreCachedTitles();
+  _state.applied.clear();
+  if (!_state.isProcessing) restoreCachedTitles();
 });
 
 // YouTube SPA navigation — fires when YouTube finishes loading a new "page"
 window.addEventListener("yt-navigate-finish", () => {
-  _ytApplied.clear();
+  _state.applied.clear();
   setTimeout(() => {
-    if (!_ytIsProcessing) {
+    if (!_state.isProcessing) {
       restoreCachedTitles();
       chrome.storage.local.get(["youtubeEnabled", "alwaysOnSites"], (data) => {
         const alwaysOn = (data.alwaysOnSites || []).some(
           (s) => s === "youtube.com" || s === "www.youtube.com" || s === "*.youtube.com"
         );
-        if ((data.youtubeEnabled || alwaysOn) && !_ytIsProcessing) {
+        if ((data.youtubeEnabled || alwaysOn) && !_state.isProcessing) {
           processYouTubeTitles();
         }
       });
@@ -146,14 +144,14 @@ window.addEventListener("yt-navigate-finish", () => {
 
 // Backup: YouTube sometimes fires this instead
 window.addEventListener("yt-page-data-updated", () => {
-  _ytApplied.clear();
+  _state.applied.clear();
   setTimeout(() => {
-    if (!_ytIsProcessing) restoreCachedTitles();
+    if (!_state.isProcessing) restoreCachedTitles();
   }, 300);
 });
 
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && !_ytIsProcessing) {
+  if (document.visibilityState === "visible" && !_state.isProcessing) {
     const hasUnbait = document.querySelector(".unbait-replaced");
     if (!hasUnbait) {
       restoreCachedTitles();
@@ -165,68 +163,28 @@ document.addEventListener("visibilitychange", () => {
 
 // Auto-restore on load (small delay so popup can send de-clickbait first)
 setTimeout(() => {
-  if (!_ytIsProcessing) restoreCachedTitles();
+  if (!_state.isProcessing) restoreCachedTitles();
 }, 200);
 
 // ---------------------------------------------------------------------------
 // Global state
 // ---------------------------------------------------------------------------
 
-const _ytElements = new Map();
-const _ytApplied = new Set();
-let _ytCacheWriteQueue = Promise.resolve();
+// _state.elements and _state.applied declared above
 
 // ---------------------------------------------------------------------------
-// Cache helpers (mirrored from content.js, YouTube-specific key)
+// Cache helpers (using shared.js, YouTube-specific prefix)
 // ---------------------------------------------------------------------------
 
-function cacheKeyForProvider(provider) {
-  return `unbait_yt_cache_${provider || "anthropic"}`;
+const YT_CACHE_PREFIX = "unbait_yt_cache_";
+const YT_GIST_CACHE_PREFIX = "gist_yt_cache_";
+
+function getCache(provider) {
+  return Unbait.getCache(YT_CACHE_PREFIX, provider);
 }
 
-async function getCurrentProvider() {
-  const data = await chrome.storage.local.get("provider");
-  return data.provider || "anthropic";
-}
-
-async function getCache(provider) {
-  if (!provider) provider = await getCurrentProvider();
-  const key = cacheKeyForProvider(provider);
-  const data = await chrome.storage.local.get(key);
-  return data[key] || {};
-}
-
-async function setCacheEntries(entries, provider) {
-  _ytCacheWriteQueue = _ytCacheWriteQueue.then(async () => {
-    if (!provider) provider = await getCurrentProvider();
-    const key = cacheKeyForProvider(provider);
-    const cache = await getCache(provider);
-    const now = Date.now();
-
-    for (const [url, value] of Object.entries(entries)) {
-      const newTitle = typeof value === "string" ? value : value.newTitle;
-      const originalTitle = typeof value === "string" ? undefined : value.originalTitle;
-      cache[url] = { newTitle, originalTitle, ts: now };
-    }
-
-    // Prune expired
-    for (const [url, entry] of Object.entries(cache)) {
-      if (now - entry.ts > YT_CONFIG.CACHE_MAX_AGE_MS) {
-        delete cache[url];
-      }
-    }
-
-    // Cap size
-    const cacheEntries = Object.entries(cache);
-    if (cacheEntries.length > YT_CONFIG.CACHE_MAX_ENTRIES) {
-      cacheEntries.sort((a, b) => a[1].ts - b[1].ts);
-      cacheEntries
-        .slice(0, cacheEntries.length - YT_CONFIG.CACHE_MAX_ENTRIES)
-        .forEach(([url]) => delete cache[url]);
-    }
-
-    await chrome.storage.local.set({ [key]: cache });
-  });
+function setCacheEntries(entries, provider) {
+  Unbait.setCacheEntries(entries, YT_CACHE_PREFIX, YT_CONFIG.CACHE_MAX_AGE_MS, YT_CONFIG.CACHE_MAX_ENTRIES, provider);
 }
 
 async function loadCache(provider) {
@@ -242,7 +200,7 @@ async function restoreCachedTitles() {
     const titles = findYouTubeTitles();
     if (titles.length === 0) return;
 
-    const provider = await getCurrentProvider();
+    const provider = await Unbait.getCurrentProvider();
     const cache = await getCache(provider);
     if (!cache || Object.keys(cache).length === 0) return;
 
@@ -261,8 +219,17 @@ async function restoreCachedTitles() {
     if (restoredCount > 0) {
       console.debug(`[Unbait YT] Restored ${restoredCount} cached titles`);
     }
+    // Update badge with total unbaited on page (incl. cached)
+    notifyBadgeCount();
   } catch {
     // Best-effort restore
+  }
+}
+
+function notifyBadgeCount() {
+  const count = document.querySelectorAll(".unbait-replaced").length;
+  if (count > 0) {
+    chrome.runtime.sendMessage({ action: "update-badge-count", count }).catch(() => {});
   }
 }
 
@@ -291,14 +258,14 @@ function restoreIcons() {
     icon.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (!_gistEnabled) {
+      if (!Unbait.gistEnabled) {
         toggleTitle(el, icon);
         return;
       }
       if (_restoreClickTimer) {
         clearTimeout(_restoreClickTimer);
         _restoreClickTimer = null;
-        if (_gistClickMode === "title") {
+        if (Unbait.gistClickMode === "title") {
           const videoId = el.dataset.unbaitVideoId || extractVideoId(el.closest("a")?.href);
           const url = videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
           const title = el.dataset.unbaitOriginal || el.textContent.trim();
@@ -309,7 +276,7 @@ function restoreIcons() {
       } else {
         _restoreClickTimer = setTimeout(() => {
           _restoreClickTimer = null;
-          if (_gistClickMode === "title") {
+          if (Unbait.gistClickMode === "title") {
             toggleTitle(el, icon);
           } else {
             const videoId = el.dataset.unbaitVideoId || extractVideoId(el.closest("a")?.href);
@@ -613,7 +580,7 @@ function renderReplacedHeadline(el, newTitle, originalText) {
   icon.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!_gistEnabled) {
+    if (!Unbait.gistEnabled) {
       toggleTitle(el, icon);
       return;
     }
@@ -622,7 +589,7 @@ function renderReplacedHeadline(el, newTitle, originalText) {
       clearTimeout(_iconClickTimer);
       _iconClickTimer = null;
       // Double click
-      if (_gistClickMode === "title") {
+      if (Unbait.gistClickMode === "title") {
         const videoId = el.dataset.unbaitVideoId || extractVideoId(el.closest("a")?.href);
         const url = videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
         const title = el.dataset.unbaitOriginal || el.textContent.trim();
@@ -634,7 +601,7 @@ function renderReplacedHeadline(el, newTitle, originalText) {
       _iconClickTimer = setTimeout(() => {
         _iconClickTimer = null;
         // Single click
-        if (_gistClickMode === "title") {
+        if (Unbait.gistClickMode === "title") {
           toggleTitle(el, icon);
         } else {
           const videoId = el.dataset.unbaitVideoId || extractVideoId(el.closest("a")?.href);
@@ -676,7 +643,7 @@ function renderReplacedHeadline(el, newTitle, originalText) {
  * Cost: 0 extra tokens — just a URL swap.
  */
 function replaceThumbnail(el, videoId) {
-  if (!_ytReplaceThumbnails || !videoId) return;
+  if (!_state.replaceThumbnails || !videoId) return;
 
   const renderer = el.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer");
   if (!renderer) return;
@@ -706,10 +673,10 @@ function replaceThumbnail(el, videoId) {
 }
 
 function applyResult(result) {
-  if (_ytApplied.has(result.id)) return false;
-  _ytApplied.add(result.id);
+  if (_state.applied.has(result.id)) return false;
+  _state.applied.add(result.id);
 
-  const el = _ytElements.get(result.id);
+  const el = _state.elements.get(result.id);
   if (!el) return false;
 
   el.classList.remove("unbait-loading");
@@ -729,7 +696,7 @@ function applyResult(result) {
 
 function applyStreamResult(result) {
   if (applyResult(result)) {
-    const el = _ytElements.get(result.id);
+    const el = _state.elements.get(result.id);
     if (el) {
       const videoId = el.dataset.unbaitVideoId;
       if (videoId && result.newTitle) {
@@ -772,144 +739,8 @@ function toggleTitle(el, icon) {
 }
 
 // ---------------------------------------------------------------------------
-// Gist: overlay, rendering, cache, click handler (YouTube)
+// Gist: YouTube-specific overlay and cache (uses shared.js for core overlay)
 // ---------------------------------------------------------------------------
-
-function gistRenderVerdictBadge(container, line) {
-  const badge = document.createElement("div");
-  let color = "green";
-  if (line.startsWith("\ud83d\udfe1")) color = "yellow";
-  else if (line.startsWith("\ud83d\udd34")) color = "red";
-  badge.className = `gist-verdict-badge ${color}`;
-  const dot = document.createElement("span");
-  dot.className = "gist-verdict-dot";
-  badge.appendChild(dot);
-  const content = line.slice(2).trim();
-  const sepIdx = content.indexOf(" | ");
-  const rawLabel = sepIdx >= 0 ? content.slice(0, sepIdx) : content;
-  const reason = sepIdx >= 0 ? content.slice(sepIdx + 3) : "";
-  const labelMatch = rawLabel.match(/\*\*([^*]+)\*\*/);
-  const labelText = labelMatch ? labelMatch[1] : rawLabel;
-  const label = document.createElement("span");
-  label.className = "gist-verdict-label";
-  label.textContent = labelText;
-  badge.appendChild(label);
-  if (reason) {
-    const divider = document.createElement("div");
-    divider.className = "gist-verdict-divider";
-    badge.appendChild(divider);
-    const reasonEl = document.createElement("span");
-    reasonEl.className = "gist-verdict-reason";
-    reasonEl.textContent = reason;
-    badge.appendChild(reasonEl);
-  }
-  container.appendChild(badge);
-}
-
-function gistRenderText(container, text) {
-  container.textContent = "";
-  const lines = text.split("\n");
-  let currentP = null;
-  const verdictIdx = lines.findIndex((l) => /^(\ud83d\udfe2|\ud83d\udfe1|\ud83d\udd34)/.test(l.trim()));
-  if (verdictIdx >= 0) gistRenderVerdictBadge(container, lines[verdictIdx].trim());
-  for (let li = 0; li < lines.length; li++) {
-    const line = lines[li];
-    if (li === verdictIdx) continue;
-    if (line.trim() === "") { currentP = null; continue; }
-    if (!currentP) { currentP = document.createElement("p"); container.appendChild(currentP); }
-    else { currentP.appendChild(document.createElement("br")); }
-    const parts = line.split(/(\*\*[^*]+\*\*)/g);
-    for (const part of parts) {
-      if (part.startsWith("**") && part.endsWith("**")) {
-        const strong = document.createElement("strong");
-        strong.textContent = part.slice(2, -2);
-        currentP.appendChild(strong);
-      } else {
-        currentP.appendChild(document.createTextNode(part));
-      }
-    }
-  }
-}
-
-function gistShowOverlay(iconEl, url) {
-  gistCloseOverlay();
-  _gistActiveUrl = url;
-  _gistActiveIconEl = iconEl;
-  const overlay = document.createElement("div");
-  overlay.className = "gist-overlay";
-  const header = document.createElement("div");
-  header.className = "gist-overlay-header";
-  const titleEl = document.createElement("span");
-  titleEl.className = "gist-overlay-title";
-  titleEl.textContent = "Gist";
-  const closeBtn = document.createElement("button");
-  closeBtn.className = "gist-overlay-close";
-  closeBtn.textContent = "\u00d7";
-  closeBtn.addEventListener("click", gistCloseOverlay);
-  header.appendChild(titleEl);
-  header.appendChild(closeBtn);
-  const body = document.createElement("div");
-  body.className = "gist-overlay-body";
-  const loading = document.createElement("div");
-  loading.className = "gist-overlay-loading";
-  body.appendChild(loading);
-  const footer = document.createElement("div");
-  footer.className = "gist-overlay-footer";
-  const knownSource = _gistTranscriptSource.get(url);
-  gistUpdateFooter(footer, url, knownSource || null);
-  overlay.appendChild(header);
-  overlay.appendChild(body);
-  overlay.appendChild(footer);
-  document.body.appendChild(overlay);
-  _gistActiveOverlay = overlay;
-  gistPositionOverlay(overlay, iconEl);
-  document.addEventListener("keydown", _gistEscHandler);
-  window.addEventListener("scroll", _gistScrollHandler, { passive: true, capture: true });
-  setTimeout(() => document.addEventListener("click", _gistOutsideClickHandler), 100);
-}
-
-function gistCloseOverlay() {
-  if (_gistActiveOverlay) { _gistActiveOverlay.remove(); _gistActiveOverlay = null; _gistActiveUrl = null; _gistActiveIconEl = null; }
-  document.removeEventListener("keydown", _gistEscHandler);
-  document.removeEventListener("click", _gistOutsideClickHandler);
-  window.removeEventListener("scroll", _gistScrollHandler, { capture: true });
-}
-
-function _gistEscHandler(e) { if (e.key === "Escape") gistCloseOverlay(); }
-function _gistOutsideClickHandler(e) {
-  if (_gistActiveOverlay && !_gistActiveOverlay.contains(e.target) && !e.target.classList.contains("unbait-icon")) gistCloseOverlay();
-}
-let _gistScrollTimer = null;
-function _gistScrollHandler() {
-  if (!_gistActiveOverlay || !_gistActiveIconEl) return;
-  if (_gistScrollTimer) clearTimeout(_gistScrollTimer);
-  _gistScrollTimer = setTimeout(() => {
-    if (_gistActiveOverlay && _gistActiveIconEl) gistPositionOverlay(_gistActiveOverlay, _gistActiveIconEl);
-  }, 50);
-}
-
-function gistPositionOverlay(overlay, iconEl) {
-  const rect = iconEl.getBoundingClientRect();
-  const pad = 8; const ow = 380; const maxH = 450;
-  const minVisible = 200;
-  let left = rect.left;
-  if (left + ow > window.innerWidth) left = window.innerWidth - ow - pad;
-  if (left < pad) left = pad;
-  overlay.style.left = left + "px";
-  const spaceBelow = window.innerHeight - rect.bottom - pad;
-  const spaceAbove = rect.top - pad;
-  if (spaceBelow >= maxH || (spaceBelow >= minVisible && spaceBelow >= spaceAbove)) {
-    // Below the icon — enough room, or more room than above
-    overlay.style.top = (rect.bottom + pad) + "px";
-    overlay.style.bottom = "";
-    overlay.style.maxHeight = Math.min(maxH, spaceBelow) + "px";
-  } else {
-    // Above the icon — anchor bottom edge just above the icon, grows upward
-    overlay.style.top = "";
-    overlay.style.bottom = (window.innerHeight - rect.top + pad) + "px";
-    overlay.style.maxHeight = Math.min(maxH, spaceAbove) + "px";
-  }
-}
 
 function gistUpdateFooter(footer, url, source) {
   footer.textContent = "";
@@ -924,60 +755,40 @@ function gistUpdateFooter(footer, url, source) {
     const badge = document.createElement("span");
     badge.textContent = source === "transcript" ? "transcript" : "title only";
     badge.style.fontWeight = "500";
-    badge.style.color = source === "transcript" ? "#0d9488" : "#f59e0b";
+    badge.className = source === "transcript" ? "gist-source-transcript" : "gist-source-title";
     footer.appendChild(badge);
   }
 }
 
-// Gist cache (YouTube)
-async function getGistYTCache(url) {
-  const data = await chrome.storage.local.get("provider");
-  const provider = data.provider || "anthropic";
-  const cacheKey = `gist_yt_cache_${provider}`;
-  const cacheData = await chrome.storage.local.get(cacheKey);
-  const cache = cacheData[cacheKey] || {};
-  const entry = cache[url];
-  if (entry && Date.now() - entry.ts < YT_CONFIG.CACHE_MAX_AGE_MS) return entry;
-  return null;
+// Gist cache (YouTube) — delegates to shared.js
+function getGistYTCache(url) {
+  return Unbait.getGistCache(url, YT_GIST_CACHE_PREFIX);
 }
 
 function cacheGistYTEntry(url, summary, hasTranscript) {
-  _gistCacheWriteQueue = _gistCacheWriteQueue.then(async () => {
-    const data = await chrome.storage.local.get("provider");
-    const provider = data.provider || "anthropic";
-    const cacheKey = `gist_yt_cache_${provider}`;
-    const cacheData = await chrome.storage.local.get(cacheKey);
-    const cache = cacheData[cacheKey] || {};
-    cache[url] = { summary, ts: Date.now(), hasTranscript };
-    const keys = Object.keys(cache);
-    if (keys.length > YT_CONFIG.CACHE_MAX_ENTRIES) {
-      keys.sort((a, b) => cache[a].ts - cache[b].ts);
-      for (let i = 0; i < keys.length - YT_CONFIG.CACHE_MAX_ENTRIES; i++) delete cache[keys[i]];
-    }
-    await chrome.storage.local.set({ [cacheKey]: cache });
-  }).catch(() => {});
+  Unbait.cacheGistEntry(url, summary, YT_GIST_CACHE_PREFIX, YT_CONFIG.CACHE_MAX_ENTRIES, { hasTranscript });
 }
 
 function handleGistStream(message) {
-  if (message.url !== _gistActiveUrl || !_gistActiveOverlay) return;
-  const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
-  if (body) gistRenderText(body, message.text);
+  if (message.url !== Unbait.gistActiveUrl || !Unbait.gistActiveOverlay) return;
+  const body = Unbait.gistActiveOverlay.querySelector(".gist-overlay-body");
+  if (body) Unbait.gistRenderText(body, message.text);
 }
 
 function handleGistResult(message) {
-  _gistPendingRequests.delete(message.url);
+  Unbait.gistPendingRequests.delete(message.url);
   const videoId = extractVideoId(message.url);
   if (videoId) {
     const source = message.hasTranscript ? "transcript" : "title-only";
     _gistTranscriptSource.set(message.url, source);
   }
-  if (message.url !== _gistActiveUrl || !_gistActiveOverlay) {
+  if (message.url !== Unbait.gistActiveUrl || !Unbait.gistActiveOverlay) {
     if (message.summary) cacheGistYTEntry(message.url, message.summary, message.hasTranscript);
     return;
   }
-  const footer = _gistActiveOverlay.querySelector(".gist-overlay-footer");
+  const footer = Unbait.gistActiveOverlay.querySelector(".gist-overlay-footer");
   if (footer) gistUpdateFooter(footer, message.url, _gistTranscriptSource.get(message.url) || null);
-  const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
+  const body = Unbait.gistActiveOverlay.querySelector(".gist-overlay-body");
   if (!body) return;
   if (message.error) {
     body.textContent = "";
@@ -986,7 +797,7 @@ function handleGistResult(message) {
     errP.textContent = message.error;
     body.appendChild(errP);
   } else if (message.summary) {
-    gistRenderText(body, message.summary);
+    Unbait.gistRenderText(body, message.summary);
     cacheGistYTEntry(message.url, message.summary, message.hasTranscript);
   }
 }
@@ -995,9 +806,14 @@ async function handleGistYTClick(e, url, title, videoId, icon) {
   e.preventDefault();
   e.stopPropagation();
 
-  if (_gistActiveUrl === url && _gistActiveOverlay) { gistCloseOverlay(); return; }
+  if (Unbait.gistActiveUrl === url && Unbait.gistActiveOverlay) { Unbait.gistCloseOverlay(); return; }
 
-  gistShowOverlay(icon, url);
+  // YouTube-specific footer renderer that shows transcript source badge
+  const footerRenderer = (footer, u) => {
+    const knownSource = _gistTranscriptSource.get(u);
+    gistUpdateFooter(footer, u, knownSource || null);
+  };
+  Unbait.gistShowOverlay(icon, url, footerRenderer);
 
   // Check cache
   const cached = await getGistYTCache(url);
@@ -1005,17 +821,17 @@ async function handleGistYTClick(e, url, title, videoId, icon) {
     const source = cached.hasTranscript === true ? "transcript"
       : cached.hasTranscript === false ? "title-only" : null;
     if (source) _gistTranscriptSource.set(url, source);
-    if (_gistActiveOverlay && _gistActiveUrl === url) {
-      const footer = _gistActiveOverlay.querySelector(".gist-overlay-footer");
+    if (Unbait.gistActiveOverlay && Unbait.gistActiveUrl === url) {
+      const footer = Unbait.gistActiveOverlay.querySelector(".gist-overlay-footer");
       if (footer) gistUpdateFooter(footer, url, source);
-      const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
-      if (body) gistRenderText(body, cached.summary);
+      const body = Unbait.gistActiveOverlay.querySelector(".gist-overlay-body");
+      if (body) Unbait.gistRenderText(body, cached.summary);
     }
     return;
   }
 
-  if (_gistPendingRequests.has(url)) return;
-  _gistPendingRequests.add(url);
+  if (Unbait.gistPendingRequests.has(url)) return;
+  Unbait.gistPendingRequests.add(url);
 
   // Fetch transcript via InnerTube (fast path, then ANDROID client)
   const events = await fetchCaptionEvents(videoId);
@@ -1023,8 +839,8 @@ async function handleGistYTClick(e, url, title, videoId, icon) {
 
   if (transcript) {
     _gistTranscriptSource.set(url, "transcript");
-    if (_gistActiveOverlay && _gistActiveUrl === url) {
-      const footer = _gistActiveOverlay.querySelector(".gist-overlay-footer");
+    if (Unbait.gistActiveOverlay && Unbait.gistActiveUrl === url) {
+      const footer = Unbait.gistActiveOverlay.querySelector(".gist-overlay-footer");
       if (footer) gistUpdateFooter(footer, url, "transcript");
     }
   }
@@ -1034,9 +850,9 @@ async function handleGistYTClick(e, url, title, videoId, icon) {
     url, title, videoId,
     transcript: transcript || undefined,
   }).catch(() => {
-    _gistPendingRequests.delete(url);
-    if (_gistActiveOverlay && _gistActiveUrl === url) {
-      const body = _gistActiveOverlay.querySelector(".gist-overlay-body");
+    Unbait.gistPendingRequests.delete(url);
+    if (Unbait.gistActiveOverlay && Unbait.gistActiveUrl === url) {
+      const body = Unbait.gistActiveOverlay.querySelector(".gist-overlay-body");
       if (body) {
         body.textContent = "";
         const errP = document.createElement("p");
@@ -1053,7 +869,7 @@ async function handleGistYTClick(e, url, title, videoId, icon) {
  * Allows users to get a gist summary even for titles that weren't de-clickbaited.
  */
 function injectYTGistIcons() {
-  if (!_gistEnabled) return;
+  if (!Unbait.gistEnabled) return;
   const titles = findYouTubeTitles();
   for (const item of titles) {
     const el = item.element;
@@ -1091,7 +907,7 @@ function categorizeHeadlines(titles, cache) {
 
   titles.forEach((item) => {
     const id = `yt-${item.videoId}`;
-    _ytElements.set(id, item.element);
+    _state.elements.set(id, item.element);
     // Only store original on first scan — re-scans would capture our rewritten title
     if (!item.element.dataset.unbaitOriginal) {
       item.element.dataset.unbaitOriginal = item.text;
@@ -1100,7 +916,7 @@ function categorizeHeadlines(titles, cache) {
 
     const cached = cache[item.url];
     if (cached && Date.now() - cached.ts < YT_CONFIG.CACHE_MAX_AGE_MS) {
-      _ytApplied.add(id);
+      _state.applied.add(id);
       if (cached.newTitle) {
         const originalTitle = cached.originalTitle || item.text;
         renderReplacedHeadline(item.element, cached.newTitle, originalTitle);
@@ -1136,7 +952,7 @@ async function fetchAndApplyResults(
     );
 
     const completePromise = new Promise((resolve) => {
-      _ytRewriteResolve = resolve;
+      _state.rewriteResolve = resolve;
     });
 
     let response;
@@ -1151,7 +967,7 @@ async function fetchAndApplyResults(
         })),
       });
     } catch (e) {
-      _ytRewriteResolve = null;
+      _state.rewriteResolve = null;
       throw e;
     }
 
@@ -1160,29 +976,29 @@ async function fetchAndApplyResults(
         completePromise,
         new Promise((resolve) =>
           setTimeout(() => {
-            _ytRewriteResolve = null;
+            _state.rewriteResolve = null;
             resolve({
               success: true,
               found: totalFound,
-              count: _ytApplied.size,
+              count: _state.applied.size,
             });
           }, YT_CONFIG.API_TIMEOUT_MS)
         ),
       ]);
-      _ytElements.forEach((el) => el.classList.remove("unbait-loading"));
+      _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
       return result;
     }
 
     // Legacy path: full response returned directly
-    _ytRewriteResolve = null;
+    _state.rewriteResolve = null;
 
     if (!response) {
-      _ytElements.forEach((el) => el.classList.remove("unbait-loading"));
-      return { success: true, found: totalFound, count: _ytApplied.size };
+      _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
+      return { success: true, found: totalFound, count: _state.applied.size };
     }
 
     if (response.error) {
-      _ytElements.forEach((el) => el.classList.remove("unbait-loading"));
+      _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
       return { error: response.error };
     }
 
@@ -1202,16 +1018,16 @@ async function fetchAndApplyResults(
       setCacheEntries(newCacheEntries, provider);
     }
 
-    _ytElements.forEach((el) => el.classList.remove("unbait-loading"));
+    _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
 
     let totalReplaced = 0;
-    _ytElements.forEach((el) => {
+    _state.elements.forEach((el) => {
       if (el.classList.contains("unbait-replaced")) totalReplaced++;
     });
 
     return { success: true, found: totalFound, count: totalReplaced };
   } catch (err) {
-    _ytElements.forEach((el) => el.classList.remove("unbait-loading"));
+    _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
     return { error: `Error: ${err.message}` };
   }
 }
@@ -1227,7 +1043,7 @@ async function processYouTubeTitles() {
   // Read settings: thumbnails + transcript depth
   try {
     const stored = await chrome.storage.local.get(["youtubeThumbnails", "ytTranscriptDepth"]);
-    _ytReplaceThumbnails = !!stored.youtubeThumbnails;
+    _state.replaceThumbnails = !!stored.youtubeThumbnails;
     const depth = stored.ytTranscriptDepth || 2;
     const depthMap = {
       1: { chars: 500, timeMs: 60000 },
@@ -1238,7 +1054,7 @@ async function processYouTubeTitles() {
     const settings = depthMap[depth] || depthMap[2];
     YT_CONFIG.TRANSCRIPT_MAX_CHARS = settings.chars;
     YT_CONFIG.TRANSCRIPT_MAX_TIME_MS = settings.timeMs;
-  } catch { _ytReplaceThumbnails = false; }
+  } catch { _state.replaceThumbnails = false; }
 
   // YouTube loads content dynamically — wait for titles to appear
   let titles = findYouTubeTitles();
@@ -1265,10 +1081,10 @@ async function processYouTubeTitles() {
     titles = titles.slice(0, FIRST_BATCH);
   }
 
-  _ytElements.clear();
-  _ytApplied.clear();
+  _state.elements.clear();
+  _state.applied.clear();
 
-  const provider = await getCurrentProvider();
+  const provider = await Unbait.getCurrentProvider();
   const cache = await loadCache(provider);
   const { uncachedData, cachedCount } = categorizeHeadlines(titles, cache);
 
@@ -1317,16 +1133,16 @@ async function processYouTubeTitles() {
   if (window.location.pathname === "/watch") {
     const rescanSidebar = async (delayMs) => {
       await new Promise((r) => setTimeout(r, delayMs));
-      if (_ytIsProcessing) return;
+      if (_state.isProcessing) return;
       const laterTitles = findYouTubeTitles();
       const newOnes = laterTitles.filter(
-        (t) => !_ytApplied.has(`yt-${t.videoId}`) && !_ytElements.has(`yt-${t.videoId}`)
+        (t) => !_state.applied.has(`yt-${t.videoId}`) && !_state.elements.has(`yt-${t.videoId}`)
       );
       // Re-inject G-icons for any new titles found in rescan
       injectYTGistIcons();
       if (newOnes.length > 0) {
         console.debug(`[Unbait YT] Sidebar rescan: ${newOnes.length} new titles`);
-        _ytIsProcessing = true;
+        _state.isProcessing = true;
         try {
           const cache2 = await loadCache(provider);
           const { uncachedData: unc2 } = categorizeHeadlines(newOnes, cache2);
@@ -1335,7 +1151,7 @@ async function processYouTubeTitles() {
             await fetchAndApplyResults(unc2, provider, 0, newOnes.length);
           }
         } finally {
-          _ytIsProcessing = false;
+          _state.isProcessing = false;
         }
       }
     };
@@ -1359,57 +1175,61 @@ async function processRemainingTitles(titles, provider) {
 // MutationObserver for SPA navigation
 // ---------------------------------------------------------------------------
 
-let _ytObserver = null;
-let _ytObserverDebounce = null;
+// _state.observer, _state.observerDebounce, _state.scrollHandler declared above
 
 function startObserving() {
-  if (_ytObserver) return;
+  if (_state.observer) return;
 
   const processNewTitles = () => {
-    if (_ytIsProcessing) return;
+    if (_state.isProcessing) return;
 
     const titles = findYouTubeTitles();
     const newTitles = titles.filter((t) => {
       const vid = t.videoId;
-      return vid && !_ytApplied.has(`yt-${vid}`) && !_ytElements.has(`yt-${vid}`);
+      return vid && !_state.applied.has(`yt-${vid}`) && !_state.elements.has(`yt-${vid}`);
     });
 
     if (newTitles.length === 0) return;
 
     console.debug(`[Unbait YT] ${newTitles.length} new titles detected`);
-    _ytIsProcessing = true;
+    _state.isProcessing = true;
     processYouTubeTitles()
-      .then(() => { _ytIsProcessing = false; })
-      .catch(() => { _ytIsProcessing = false; });
+      .then(() => { _state.isProcessing = false; })
+      .catch(() => { _state.isProcessing = false; });
   };
 
   // MutationObserver for new DOM elements (YouTube SPA navigation)
-  _ytObserver = new MutationObserver(() => {
-    if (_ytObserverDebounce) clearTimeout(_ytObserverDebounce);
-    _ytObserverDebounce = setTimeout(processNewTitles, YT_CONFIG.OBSERVER_DEBOUNCE_MS);
+  _state.observer = new MutationObserver(() => {
+    if (_state.observerDebounce) clearTimeout(_state.observerDebounce);
+    _state.observerDebounce = setTimeout(processNewTitles, YT_CONFIG.OBSERVER_DEBOUNCE_MS);
   });
 
-  _ytObserver.observe(document.body, { childList: true, subtree: true });
+  _state.observer.observe(document.body, { childList: true, subtree: true });
 
   // Scroll listener to pre-fetch titles ahead of the viewport
   let _scrollDebounce = null;
-  window.addEventListener("scroll", () => {
+  _state.scrollHandler = () => {
     if (_scrollDebounce) clearTimeout(_scrollDebounce);
     _scrollDebounce = setTimeout(processNewTitles, 300);
-  }, { passive: true });
+  };
+  window.addEventListener("scroll", _state.scrollHandler, { passive: true });
 
   console.debug("[Unbait YT] Observer + scroll listener started");
 }
 
 function stopObserving() {
-  if (_ytObserver) {
-    _ytObserver.disconnect();
-    _ytObserver = null;
-    if (_ytObserverDebounce) {
-      clearTimeout(_ytObserverDebounce);
-      _ytObserverDebounce = null;
+  if (_state.observer) {
+    _state.observer.disconnect();
+    _state.observer = null;
+    if (_state.observerDebounce) {
+      clearTimeout(_state.observerDebounce);
+      _state.observerDebounce = null;
     }
-    console.debug("[Unbait YT] MutationObserver stopped");
+    if (_state.scrollHandler) {
+      window.removeEventListener("scroll", _state.scrollHandler);
+      _state.scrollHandler = null;
+    }
+    console.debug("[Unbait YT] MutationObserver + scroll listener stopped");
   }
 }
 
