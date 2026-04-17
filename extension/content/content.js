@@ -252,6 +252,18 @@ function notifyBadgeCount() {
   }
 }
 
+// Returns the tooltip text for the Unbait icon based on current state.
+// When Gist is enabled and single-click shows the summary, reflect that.
+function getIconTooltip(showingOriginal) {
+  const gistOn = Unbait.gistEnabled;
+  const clickShowsTitle = !gistOn || Unbait.gistClickMode === "title";
+  if (clickShowsTitle) {
+    return showingOriginal ? "Click to show Unbait title" : "Click to show original";
+  }
+  // Gist on + single click shows summary
+  return "Get the gist";
+}
+
 function restoreIconForElement(el) {
   // If a parent is also .unbait-replaced, let the parent handle icon placement
   // (guards against corrupted state where both <a> and inner <h2> are marked)
@@ -263,12 +275,13 @@ function restoreIconForElement(el) {
   if (el.dataset.unbaitNew) {
     const icon = document.createElement("span");
     icon.className = "unbait-icon";
-    icon.title = "Click to show original";
+    const showingOriginal = el.textContent === el.dataset.unbaitOriginal;
+    icon.title = getIconTooltip(showingOriginal);
     icon.setAttribute("role", "button");
     icon.setAttribute("tabindex", "0");
     icon.setAttribute("aria-label", "Toggle original headline");
     // Restore showing-original state
-    if (el.textContent === el.dataset.unbaitOriginal) {
+    if (showingOriginal) {
       icon.classList.add("showing-original");
     }
     // No inline listeners — handled by event delegation
@@ -758,7 +771,7 @@ function renderReplacedHeadline(el, newTitle, originalText) {
 
   const icon = document.createElement("span");
   icon.className = "unbait-icon";
-  icon.title = "Klik om origineel te tonen";
+  icon.title = getIconTooltip(false);
   icon.setAttribute("role", "button");
   icon.setAttribute("tabindex", "0");
   icon.setAttribute("aria-label", "Toggle original headline");
@@ -831,14 +844,14 @@ function toggleTitle(el, icon) {
   if (isShowingOriginal) {
     // Show unbait title
     setTitleText(el, rewritten);
-    el.title = `Origineel: ${original}`;
-    icon.title = "Klik om origineel te tonen";
+    el.title = `Original: ${original}`;
+    icon.title = getIconTooltip(false);
     icon.classList.remove("showing-original");
   } else {
     // Show original text
     setTitleText(el, original);
     el.title = `Unbait: ${rewritten}`;
-    icon.title = "Klik om Unbait-titel te tonen";
+    icon.title = getIconTooltip(true);
     icon.classList.add("showing-original");
   }
   // Re-append icon (setTitleText on a plain text element removes child nodes)
