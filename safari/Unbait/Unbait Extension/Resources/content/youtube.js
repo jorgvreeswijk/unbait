@@ -301,7 +301,13 @@ function restoreIcons() {
 // Find YouTube video titles
 // ---------------------------------------------------------------------------
 
+// Renderer containers (desktop ytd-* and mobile ytm-*). Used for closest() lookups.
+const YT_RENDERER_SELECTOR =
+  "ytd-rich-item-renderer, ytd-rich-grid-media, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-playlist-video-renderer, ytd-reel-item-renderer, yt-lockup-view-model, ytm-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2, " +
+  "ytm-rich-item-renderer, ytm-video-with-context-renderer, ytm-compact-video-renderer, ytm-compact-autoplay-renderer, ytm-media-item, ytm-playlist-video-renderer, ytm-reel-item-renderer, ytm-shelf-renderer";
+
 const YT_TITLE_SELECTORS = [
+  // Desktop (ytd-*)
   "ytd-rich-item-renderer h3",                   // Homepage grid (2026 layout)
   "ytd-rich-grid-media h3",                      // Homepage grid (alternate)
   "ytd-video-renderer h3",                       // Search results
@@ -315,6 +321,21 @@ const YT_TITLE_SELECTORS = [
   "ytd-rich-grid-media #video-title",            // Legacy layout
   "ytd-video-renderer #video-title",             // Legacy search
   "#video-title",                                // Catch-all fallback
+  // Mobile (ytm-*) — iOS Safari / m.youtube.com
+  "ytm-rich-item-renderer h3",
+  "ytm-video-with-context-renderer h3",
+  "ytm-compact-video-renderer h4",
+  "ytm-compact-autoplay-renderer h4",
+  "ytm-media-item h4",
+  "ytm-playlist-video-renderer h4",
+  "h3.media-item-headline span",                 // Mobile compact title span
+  "h4.compact-media-item-headline span",
+  // Mobile Shorts (ytm-shorts-lockup-view-model) — iOS Safari
+  "ytm-shorts-lockup-view-model h3",
+  "ytm-shorts-lockup-view-model-v2 h3",
+  ".shortsLockupViewModelHostOutsideMetadataTitle span",
+  ".shortsLockupViewModelHostMetadataTitle span",
+  'a[href*="/shorts/"] h3 span.yt-core-attributed-string',
 ];
 
 function findYouTubeTitles() {
@@ -330,7 +351,7 @@ function findYouTubeTitles() {
         href = anchor.href;
       } else {
         // New YouTube layout: link is in a sibling or parent container
-        const container = el.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-playlist-video-renderer, yt-lockup-view-model");
+        const container = el.closest(YT_RENDERER_SELECTOR);
         if (container) {
           const link = container.querySelector('a[href*="/watch"], a[href*="/shorts/"]');
           if (link) href = link.href;
@@ -567,7 +588,7 @@ function renderReplacedHeadline(el, newTitle, originalText) {
   el.title = `Original: ${el.dataset.unbaitOriginal || originalText}`;
 
   // Mark the renderer container
-  const renderer = el.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer");
+  const renderer = el.closest(YT_RENDERER_SELECTOR);
   if (renderer) renderer.dataset.unbaitProcessed = "true";
 
   const icon = document.createElement("span");
@@ -645,11 +666,11 @@ function renderReplacedHeadline(el, newTitle, originalText) {
 function replaceThumbnail(el, videoId) {
   if (!_state.replaceThumbnails || !videoId) return;
 
-  const renderer = el.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer");
+  const renderer = el.closest(YT_RENDERER_SELECTOR);
   if (!renderer) return;
 
   // Find the thumbnail image
-  const thumbContainer = renderer.querySelector("ytd-thumbnail, .ytd-thumbnail, yt-thumbnail-view-model");
+  const thumbContainer = renderer.querySelector("ytd-thumbnail, .ytd-thumbnail, yt-thumbnail-view-model, ytm-thumbnail-overlay, .thumbnail-container, .compact-media-item-image");
   if (!thumbContainer) return;
 
   const img = thumbContainer.querySelector("img");
@@ -715,7 +736,7 @@ function toggleTitle(el, icon) {
   const isShowingOriginal = icon.classList.contains("showing-original");
 
   // Also toggle thumbnail if it was replaced
-  const renderer = el.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer");
+  const renderer = el.closest(YT_RENDERER_SELECTOR);
   const neutralThumb = renderer?.querySelector(".unbait-thumb-replaced");
   const originalThumb = renderer?.querySelector(".unbait-thumb-original");
 

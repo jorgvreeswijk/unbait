@@ -605,11 +605,15 @@
     }
 
     /* Responsive */
+    @media (max-width: 720px) {
+      .nav-links { display: none; }
+    }
     @media (max-width: 640px) {
       .hero h1 { font-size: 2.25rem; }
       .hero p { font-size: 1.1rem; }
       nav { padding: 0.75rem 1rem; }
-      .nav-links { gap: 1rem; }
+      .nav-store-icons { gap: 0.25rem; }
+      .nav-icon-btn { width: 34px; height: 34px; }
       .demo-row { flex-direction: column; gap: 0.5rem; }
       .demo-before, .demo-after { flex: none; }
       .steps { flex-direction: column; align-items: center; }
@@ -688,8 +692,8 @@
       <a href="https://chromewebstore.google.com/detail/unbait/aalfifejmilfomffjgkaflbfkllgpbfa" class="nav-icon-btn store-chrome" title="Add to Chrome" target="_blank" rel="noopener" aria-label="Add to Chrome">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="21.17" y1="8" x2="12" y2="8"/><line x1="3.95" y1="6.06" x2="8.54" y2="14"/><line x1="10.88" y1="21.94" x2="15.46" y2="14"/></svg>
       </a>
-      <!-- Mac App Store (Safari) -->
-      <a href="https://apps.apple.com/us/app/unbait/id6761493959" class="nav-icon-btn store-safari" title="Get Unbait for Safari" target="_blank" rel="noopener" aria-label="Get Unbait for Safari">
+      <!-- Mac/iOS App Store (Safari) -->
+      <a href="https://apps.apple.com/us/app/unbait/id6761493959" class="nav-icon-btn store-safari" title="Get Unbait for Safari" data-ios-href="IOS_APP_STORE_URL" data-ios-title="Get Unbait for iPhone" target="_blank" rel="noopener" aria-label="Get Unbait for Safari">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="currentColor" stroke="none"/></svg>
       </a>
       <!-- GitHub -->
@@ -707,9 +711,9 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="21.17" y1="8" x2="12" y2="8"/><line x1="3.95" y1="6.06" x2="8.54" y2="14"/><line x1="10.88" y1="21.94" x2="15.46" y2="14"/></svg>
         Add to Chrome
       </a>
-      <a href="https://apps.apple.com/us/app/unbait/id6761493959" class="btn btn-secondary store-safari" target="_blank" rel="noopener">
+      <a href="https://apps.apple.com/us/app/unbait/id6761493959" class="btn btn-secondary store-safari" data-ios-href="IOS_APP_STORE_URL" data-ios-label="Get for iPhone" target="_blank" rel="noopener">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="currentColor" stroke="none"/></svg>
-        Get for Safari
+        <span>Get for Safari</span>
       </a>
       <a href="https://github.com/jorgvreeswijk/unbait" class="btn btn-secondary" target="_blank" rel="noopener">
         <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -1009,14 +1013,28 @@
   </script>
 
   <script>
-    // Detect browser, highlight matching store buttons, dim the others.
-    // If browser is unknown/unsupported → no classes added, all buttons normal.
+    // Detect platform/browser, highlight matching store buttons, dim the others.
+    // On iOS: swap Safari buttons to the iOS App Store URL.
     (function () {
       var ua = navigator.userAgent;
+      var isIOS = /iPhone|iPad|iPod/i.test(ua);
       var isSafari = /Safari/i.test(ua) && !/Chrome|CriOS|FxiOS/i.test(ua);
       var isChrome = /Chrome/i.test(ua) && !/Edg|Edge|OPR/i.test(ua);
-      var target = isChrome ? 'chrome' : isSafari ? 'safari' : null;
-      if (!target) return; // unknown browser → show everything at full opacity
+
+      if (isIOS) {
+        document.querySelectorAll('.store-safari[data-ios-href]').forEach(function (el) {
+          el.href = el.dataset.iosHref;
+          if (el.dataset.iosTitle) {
+            el.title = el.dataset.iosTitle;
+            el.setAttribute('aria-label', el.dataset.iosTitle);
+          }
+          var labelEl = el.querySelector('span');
+          if (labelEl && el.dataset.iosLabel) labelEl.textContent = el.dataset.iosLabel;
+        });
+      }
+
+      var target = isIOS ? 'safari' : isChrome ? 'chrome' : isSafari ? 'safari' : null;
+      if (!target) return;
       var other = target === 'chrome' ? 'safari' : 'chrome';
       document.querySelectorAll('.store-' + target).forEach(function (el) {
         el.classList.add('store-highlight');

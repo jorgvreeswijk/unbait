@@ -216,6 +216,12 @@ window.Unbait = (function () {
     gistPositionOverlay(overlay, iconEl);
     document.addEventListener("keydown", _gistEscHandler);
     window.addEventListener("scroll", _gistScrollHandler, { passive: true, capture: true });
+    // iOS Safari: reposition when the visual viewport changes (URL bar
+    // collapse/expand, pinch zoom, soft keyboard appearance).
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", _gistViewportHandler);
+      window.visualViewport.addEventListener("scroll", _gistViewportHandler);
+    }
     setTimeout(() => document.addEventListener("click", _gistOutsideClickHandler), 100);
   }
 
@@ -229,6 +235,16 @@ window.Unbait = (function () {
     document.removeEventListener("keydown", _gistEscHandler);
     document.removeEventListener("click", _gistOutsideClickHandler);
     window.removeEventListener("scroll", _gistScrollHandler, { capture: true });
+    if (window.visualViewport) {
+      window.visualViewport.removeEventListener("resize", _gistViewportHandler);
+      window.visualViewport.removeEventListener("scroll", _gistViewportHandler);
+    }
+  }
+
+  function _gistViewportHandler() {
+    if (_gistActiveOverlay && _gistActiveIconEl) {
+      gistPositionOverlay(_gistActiveOverlay, _gistActiveIconEl);
+    }
   }
 
   function _gistEscHandler(e) {
@@ -261,22 +277,32 @@ window.Unbait = (function () {
   function gistPositionOverlay(overlay, iconEl) {
     const rect = iconEl.getBoundingClientRect();
     const pad = 8;
-    const ow = 380;
+    // Responsive width on narrow (mobile) viewports — leave at least 2*pad margin.
+    // visualViewport reflects the actual visible area on iOS Safari (URL bar,
+    // pinch zoom, software keyboard); fall back to innerWidth/Height otherwise.
+    const vv = window.visualViewport;
+    const vw = vv ? vv.width : window.innerWidth;
+    const vh = vv ? vv.height : window.innerHeight;
+    const voffsetTop = vv ? vv.offsetTop : 0;
+    const ow = Math.min(380, vw - pad * 2);
     const maxH = 450;
     const minVisible = 200;
+    overlay.style.width = ow + "px";
     let left = rect.left;
-    if (left + ow > window.innerWidth) left = window.innerWidth - ow - pad;
+    if (left + ow > vw) left = vw - ow - pad;
     if (left < pad) left = pad;
     overlay.style.left = left + "px";
-    const spaceBelow = window.innerHeight - rect.bottom - pad;
-    const spaceAbove = rect.top - pad;
+    const spaceBelow = vh + voffsetTop - rect.bottom - pad;
+    const spaceAbove = rect.top - voffsetTop - pad;
     if (spaceBelow >= maxH || (spaceBelow >= minVisible && spaceBelow >= spaceAbove)) {
       overlay.style.top = (rect.bottom + pad) + "px";
       overlay.style.bottom = "";
       overlay.style.maxHeight = Math.min(maxH, spaceBelow) + "px";
     } else {
       overlay.style.top = "";
-      overlay.style.bottom = (window.innerHeight - rect.top + pad) + "px";
+      // Bottom is measured from the bottom of the layout viewport; adjust for
+      // visualViewport offset so the overlay clears any soft keyboard/URL bar.
+      overlay.style.bottom = (window.innerHeight - (rect.top + voffsetTop) + pad) + "px";
       overlay.style.maxHeight = Math.min(maxH, spaceAbove) + "px";
     }
   }

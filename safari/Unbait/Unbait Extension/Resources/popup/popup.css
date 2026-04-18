@@ -24,6 +24,11 @@ html, body {
   max-height: 500px;
   overflow-y: auto;
   overflow-x: hidden;
+  /* Respect iOS safe-area (notch, home indicator) when popup is full-viewport */
+  padding-top: env(safe-area-inset-top, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  padding-left: env(safe-area-inset-left, 0);
+  padding-right: env(safe-area-inset-right, 0);
 }
 
 body {
@@ -32,6 +37,27 @@ body {
   font-size: 14px;
   color: #1a1a1a;
   background: #fff;
+}
+
+/*
+ * iOS/iPadOS Safari renders the extension popup as a sheet that can take the
+ * full viewport width. We detect touch devices (no hover, coarse pointer) and:
+ *   1. Expand the popup to use the full width (removes the 320px cap)
+ *   2. Bump input/select font-size to 16px to prevent Safari's auto-zoom
+ *      (which triggers when a focused field has font-size < 16px).
+ */
+@media (hover: none) and (pointer: coarse) {
+  html, body {
+    width: 100%;
+    max-width: 100%;
+    max-height: none;
+  }
+  body {
+    width: 100%;
+  }
+  input, select, textarea {
+    font-size: 16px !important;
+  }
 }
 
 .container {

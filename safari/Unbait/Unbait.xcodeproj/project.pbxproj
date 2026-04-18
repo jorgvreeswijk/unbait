@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		092C2B0A2F92A15C002B40B7 /* Unbait iOS Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 092C2B092F92A15C002B40B7 /* Unbait iOS Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		09D4D8ED2F7089EE00DC095F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09D4D8EC2F7089EE00DC095F /* AppDelegate.swift */; };
 		09D4D8F12F7089EF00DC095F /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 09D4D8EF2F7089EF00DC095F /* Main.html */; };
 		09D4D8F32F7089EF00DC095F /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 09D4D8F22F7089EF00DC095F /* Icon.png */; };
@@ -23,9 +24,35 @@
 		09D4D91E2F7089F100DC095F /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 09D4D9192F7089F100DC095F /* icons */; };
 		09D4D91F2F7089F100DC095F /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 09D4D91A2F7089F100DC095F /* manifest.json */; };
 		09D4D9202F7089F200DC095F /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 09D4D9212F7089F200DC095F /* PrivacyInfo.xcprivacy */; };
+		09F01A062F92A15C002B40B7 /* background in Resources */ = {isa = PBXBuildFile; fileRef = 09F01A012F92A15C002B40B7 /* background */; };
+		09F01A072F92A15C002B40B7 /* content in Resources */ = {isa = PBXBuildFile; fileRef = 09F01A022F92A15C002B40B7 /* content */; };
+		09F01A082F92A15C002B40B7 /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 09F01A032F92A15C002B40B7 /* icons */; };
+		09F01A092F92A15C002B40B7 /* popup in Resources */ = {isa = PBXBuildFile; fileRef = 09F01A042F92A15C002B40B7 /* popup */; };
+		09F01A0A2F92A15C002B40B7 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 09F01A052F92A15C002B40B7 /* manifest.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		092C2AF42F92A15C002B40B7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 09D4D8E12F7089EE00DC095F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 092C2AD62F92A155002B40B7;
+			remoteInfo = "Unbait iOS";
+		};
+		092C2AFE2F92A15C002B40B7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 09D4D8E12F7089EE00DC095F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 092C2AD62F92A155002B40B7;
+			remoteInfo = "Unbait iOS";
+		};
+		092C2B0B2F92A15C002B40B7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 09D4D8E12F7089EE00DC095F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 092C2B082F92A15C002B40B7;
+			remoteInfo = "Unbait iOS Extension";
+		};
 		09D4D9062F7089F000DC095F /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 09D4D8E12F7089EE00DC095F /* Project object */;
@@ -36,6 +63,17 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		092C2B252F92A15C002B40B7 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				092C2B0A2F92A15C002B40B7 /* Unbait iOS Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		09D4D9112F7089F000DC095F /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -50,6 +88,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		092C2AD72F92A155002B40B7 /* Unbait iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Unbait iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		092C2AF32F92A15C002B40B7 /* Unbait iOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Unbait iOSTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		092C2AFD2F92A15C002B40B7 /* Unbait iOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Unbait iOSUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		092C2B092F92A15C002B40B7 /* Unbait iOS Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Unbait iOS Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		09D4D8E92F7089EE00DC095F /* Unbait.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Unbait.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		09D4D8EC2F7089EE00DC095F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		09D4D8F02F7089EF00DC095F /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
@@ -69,9 +111,89 @@
 		09D4D9192F7089F100DC095F /* icons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = icons; path = Resources/icons; sourceTree = "<group>"; };
 		09D4D91A2F7089F100DC095F /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = Resources/manifest.json; sourceTree = "<group>"; };
 		09D4D9212F7089F200DC095F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		09F01A012F92A15C002B40B7 /* background */ = {isa = PBXFileReference; lastKnownFileType = folder; name = background; path = "Unbait iOS Extension/Resources/background"; sourceTree = "<group>"; };
+		09F01A022F92A15C002B40B7 /* content */ = {isa = PBXFileReference; lastKnownFileType = folder; name = content; path = "Unbait iOS Extension/Resources/content"; sourceTree = "<group>"; };
+		09F01A032F92A15C002B40B7 /* icons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = icons; path = "Unbait iOS Extension/Resources/icons"; sourceTree = "<group>"; };
+		09F01A042F92A15C002B40B7 /* popup */ = {isa = PBXFileReference; lastKnownFileType = folder; name = popup; path = "Unbait iOS Extension/Resources/popup"; sourceTree = "<group>"; };
+		09F01A052F92A15C002B40B7 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = "Unbait iOS Extension/Resources/manifest.json"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		092C2B2C2F92A15C002B40B7 /* Exceptions for "Unbait iOS" folder in "Unbait iOS" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 092C2AD62F92A155002B40B7 /* Unbait iOS */;
+		};
+		092C2B2E2F92A15C002B40B7 /* Exceptions for "Unbait iOS Extension" folder in "Unbait iOS Extension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				Resources/manifest.json,
+			);
+			target = 092C2B082F92A15C002B40B7 /* Unbait iOS Extension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		092C2AD82F92A156002B40B7 /* Unbait iOS */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				092C2B2C2F92A15C002B40B7 /* Exceptions for "Unbait iOS" folder in "Unbait iOS" target */,
+			);
+			path = "Unbait iOS";
+			sourceTree = "<group>";
+		};
+		092C2AF62F92A15C002B40B7 /* Unbait iOSTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Unbait iOSTests";
+			sourceTree = "<group>";
+		};
+		092C2B002F92A15C002B40B7 /* Unbait iOSUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Unbait iOSUITests";
+			sourceTree = "<group>";
+		};
+		092C2B0D2F92A15C002B40B7 /* Unbait iOS Extension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				092C2B2E2F92A15C002B40B7 /* Exceptions for "Unbait iOS Extension" folder in "Unbait iOS Extension" target */,
+			);
+			path = "Unbait iOS Extension";
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
 /* Begin PBXFrameworksBuildPhase section */
+		092C2AD42F92A155002B40B7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		092C2AF02F92A15C002B40B7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		092C2AFA2F92A15C002B40B7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		092C2B062F92A15C002B40B7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		09D4D8E62F7089EE00DC095F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -89,12 +211,29 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		098E9F5A2F92B4F7008C8657 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				09F01A012F92A15C002B40B7 /* background */,
+				09F01A022F92A15C002B40B7 /* content */,
+				09F01A032F92A15C002B40B7 /* icons */,
+				09F01A042F92A15C002B40B7 /* popup */,
+				09F01A052F92A15C002B40B7 /* manifest.json */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		09D4D8E02F7089EE00DC095F = {
 			isa = PBXGroup;
 			children = (
 				09D4D8EB2F7089EE00DC095F /* Unbait */,
 				09D4D9082F7089F000DC095F /* Unbait Extension */,
+				092C2AD82F92A156002B40B7 /* Unbait iOS */,
+				092C2AF62F92A15C002B40B7 /* Unbait iOSTests */,
+				092C2B002F92A15C002B40B7 /* Unbait iOSUITests */,
+				092C2B0D2F92A15C002B40B7 /* Unbait iOS Extension */,
 				09D4D8EA2F7089EE00DC095F /* Products */,
+				098E9F5A2F92B4F7008C8657 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -103,6 +242,10 @@
 			children = (
 				09D4D8E92F7089EE00DC095F /* Unbait.app */,
 				09D4D9042F7089F000DC095F /* Unbait Extension.appex */,
+				092C2AD72F92A155002B40B7 /* Unbait iOS.app */,
+				092C2AF32F92A15C002B40B7 /* Unbait iOSTests.xctest */,
+				092C2AFD2F92A15C002B40B7 /* Unbait iOSUITests.xctest */,
+				092C2B092F92A15C002B40B7 /* Unbait iOS Extension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -158,6 +301,98 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		092C2AD62F92A155002B40B7 /* Unbait iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 092C2B2F2F92A15C002B40B7 /* Build configuration list for PBXNativeTarget "Unbait iOS" */;
+			buildPhases = (
+				092C2AD32F92A155002B40B7 /* Sources */,
+				092C2AD42F92A155002B40B7 /* Frameworks */,
+				092C2AD52F92A155002B40B7 /* Resources */,
+				092C2B252F92A15C002B40B7 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				092C2B0C2F92A15C002B40B7 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				092C2AD82F92A156002B40B7 /* Unbait iOS */,
+			);
+			name = "Unbait iOS";
+			packageProductDependencies = (
+			);
+			productName = "Unbait iOS";
+			productReference = 092C2AD72F92A155002B40B7 /* Unbait iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		092C2AF22F92A15C002B40B7 /* Unbait iOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 092C2B302F92A15C002B40B7 /* Build configuration list for PBXNativeTarget "Unbait iOSTests" */;
+			buildPhases = (
+				092C2AEF2F92A15C002B40B7 /* Sources */,
+				092C2AF02F92A15C002B40B7 /* Frameworks */,
+				092C2AF12F92A15C002B40B7 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				092C2AF52F92A15C002B40B7 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				092C2AF62F92A15C002B40B7 /* Unbait iOSTests */,
+			);
+			name = "Unbait iOSTests";
+			packageProductDependencies = (
+			);
+			productName = "Unbait iOSTests";
+			productReference = 092C2AF32F92A15C002B40B7 /* Unbait iOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		092C2AFC2F92A15C002B40B7 /* Unbait iOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 092C2B312F92A15C002B40B7 /* Build configuration list for PBXNativeTarget "Unbait iOSUITests" */;
+			buildPhases = (
+				092C2AF92F92A15C002B40B7 /* Sources */,
+				092C2AFA2F92A15C002B40B7 /* Frameworks */,
+				092C2AFB2F92A15C002B40B7 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				092C2AFF2F92A15C002B40B7 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				092C2B002F92A15C002B40B7 /* Unbait iOSUITests */,
+			);
+			name = "Unbait iOSUITests";
+			packageProductDependencies = (
+			);
+			productName = "Unbait iOSUITests";
+			productReference = 092C2AFD2F92A15C002B40B7 /* Unbait iOSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		092C2B082F92A15C002B40B7 /* Unbait iOS Extension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 092C2B2D2F92A15C002B40B7 /* Build configuration list for PBXNativeTarget "Unbait iOS Extension" */;
+			buildPhases = (
+				092C2B052F92A15C002B40B7 /* Sources */,
+				092C2B062F92A15C002B40B7 /* Frameworks */,
+				092C2B072F92A15C002B40B7 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				092C2B0D2F92A15C002B40B7 /* Unbait iOS Extension */,
+			);
+			name = "Unbait iOS Extension";
+			packageProductDependencies = (
+			);
+			productName = "Unbait iOS Extension";
+			productReference = 092C2B092F92A15C002B40B7 /* Unbait iOS Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		09D4D8E82F7089EE00DC095F /* Unbait */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 09D4D9122F7089F000DC095F /* Build configuration list for PBXNativeTarget "Unbait" */;
@@ -208,6 +443,20 @@
 				LastSwiftUpdateCheck = 2630;
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
+					092C2AD62F92A155002B40B7 = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					092C2AF22F92A15C002B40B7 = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = 092C2AD62F92A155002B40B7;
+					};
+					092C2AFC2F92A15C002B40B7 = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = 092C2AD62F92A155002B40B7;
+					};
+					092C2B082F92A15C002B40B7 = {
+						CreatedOnToolsVersion = 26.3;
+					};
 					09D4D8E82F7089EE00DC095F = {
 						CreatedOnToolsVersion = 26.3;
 					};
@@ -232,11 +481,48 @@
 			targets = (
 				09D4D8E82F7089EE00DC095F /* Unbait */,
 				09D4D9032F7089F000DC095F /* Unbait Extension */,
+				092C2AD62F92A155002B40B7 /* Unbait iOS */,
+				092C2AF22F92A15C002B40B7 /* Unbait iOSTests */,
+				092C2AFC2F92A15C002B40B7 /* Unbait iOSUITests */,
+				092C2B082F92A15C002B40B7 /* Unbait iOS Extension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		092C2AD52F92A155002B40B7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		092C2AF12F92A15C002B40B7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		092C2AFB2F92A15C002B40B7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		092C2B072F92A15C002B40B7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				09F01A062F92A15C002B40B7 /* background in Resources */,
+				09F01A072F92A15C002B40B7 /* content in Resources */,
+				09F01A082F92A15C002B40B7 /* icons in Resources */,
+				09F01A092F92A15C002B40B7 /* popup in Resources */,
+				09F01A0A2F92A15C002B40B7 /* manifest.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		09D4D8E72F7089EE00DC095F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -266,6 +552,34 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		092C2AD32F92A155002B40B7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		092C2AEF2F92A15C002B40B7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		092C2AF92F92A15C002B40B7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		092C2B052F92A15C002B40B7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		09D4D8E52F7089EE00DC095F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -286,6 +600,21 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		092C2AF52F92A15C002B40B7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 092C2AD62F92A155002B40B7 /* Unbait iOS */;
+			targetProxy = 092C2AF42F92A15C002B40B7 /* PBXContainerItemProxy */;
+		};
+		092C2AFF2F92A15C002B40B7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 092C2AD62F92A155002B40B7 /* Unbait iOS */;
+			targetProxy = 092C2AFE2F92A15C002B40B7 /* PBXContainerItemProxy */;
+		};
+		092C2B0C2F92A15C002B40B7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 092C2B082F92A15C002B40B7 /* Unbait iOS Extension */;
+			targetProxy = 092C2B0B2F92A15C002B40B7 /* PBXContainerItemProxy */;
+		};
 		09D4D9072F7089F000DC095F /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 09D4D9032F7089F000DC095F /* Unbait Extension */;
@@ -313,6 +642,252 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		092C2B232F92A15C002B40B7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LG753RHHQ5;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Unbait iOS/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Unbait iOS";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.3.1;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = link.unbait.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		092C2B242F92A15C002B40B7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LG753RHHQ5;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Unbait iOS/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Unbait iOS";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.3.1;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = link.unbait.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		092C2B262F92A15C002B40B7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LG753RHHQ5;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.3.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "link.unbait.app.Unbait-iOSTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Unbait iOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Unbait iOS";
+			};
+			name = Debug;
+		};
+		092C2B272F92A15C002B40B7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LG753RHHQ5;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.3.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "link.unbait.app.Unbait-iOSTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Unbait iOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Unbait iOS";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		092C2B282F92A15C002B40B7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LG753RHHQ5;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.3.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "link.unbait.app.Unbait-iOSUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "Unbait iOS";
+			};
+			name = Debug;
+		};
+		092C2B292F92A15C002B40B7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LG753RHHQ5;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.3.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "link.unbait.app.Unbait-iOSUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "Unbait iOS";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		092C2B2A2F92A15C002B40B7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LG753RHHQ5;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Unbait iOS Extension/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Unbait iOS Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.3.1;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "link.unbait.app.iOSExtension";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		092C2B2B2F92A15C002B40B7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LG753RHHQ5;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Unbait iOS Extension/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Unbait iOS Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.3.1;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "link.unbait.app.iOSExtension";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		09D4D90C2F7089F000DC095F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -590,6 +1165,42 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		092C2B2D2F92A15C002B40B7 /* Build configuration list for PBXNativeTarget "Unbait iOS Extension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				092C2B2A2F92A15C002B40B7 /* Debug */,
+				092C2B2B2F92A15C002B40B7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		092C2B2F2F92A15C002B40B7 /* Build configuration list for PBXNativeTarget "Unbait iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				092C2B232F92A15C002B40B7 /* Debug */,
+				092C2B242F92A15C002B40B7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		092C2B302F92A15C002B40B7 /* Build configuration list for PBXNativeTarget "Unbait iOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				092C2B262F92A15C002B40B7 /* Debug */,
+				092C2B272F92A15C002B40B7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		092C2B312F92A15C002B40B7 /* Build configuration list for PBXNativeTarget "Unbait iOSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				092C2B282F92A15C002B40B7 /* Debug */,
+				092C2B292F92A15C002B40B7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		09D4D8E42F7089EE00DC095F /* Build configuration list for PBXProject "Unbait" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

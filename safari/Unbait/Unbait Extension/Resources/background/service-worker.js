@@ -1,6 +1,16 @@
 // Track active job status per tab
 const _tabStatus = new Map();
 
+// Detect Safari (desktop + iOS). Safari's MV3 service workers are killed
+// aggressively after ~5s idle and SSE streaming via ReadableStream is unreliable.
+// We use this flag to fall back to small non-streaming batches.
+const IS_SAFARI = (() => {
+  try {
+    const ua = navigator.userAgent || "";
+    return /Safari/.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS/.test(ua);
+  } catch { return false; }
+})();
+
 // Migrate autoSites from sync to local (one-time, for Safari compatibility)
 chrome.storage.sync.get("autoSites").then((syncData) => {
   if (syncData.autoSites && syncData.autoSites.length > 0) {
@@ -25,6 +35,13 @@ async function incrementStats(field, amount) {
     await chrome.storage.local.set({ unbait_stats: stats });
   } catch { /* best-effort */ }
 }
+
+// Is OffscreenCanvas usable in this service worker context?
+// Safari's MV3 service worker does not implement OffscreenCanvas.
+const HAS_OFFSCREEN_CANVAS = (() => {
+  try { return typeof OffscreenCanvas !== "undefined" && !!new OffscreenCanvas(1, 1).getContext("2d"); }
+  catch { return false; }
+})();
 
 // Generate a dynamic icon: teal circle with text (replaces entire icon)
 function generateIcon(text, bgColor) {
@@ -54,6 +71,27 @@ function generateIcon(text, bgColor) {
 }
 
 function updateBadge(tabId, state, count) {
+  // Safari (and any browser without OffscreenCanvas in SW): fall back to
+  // setBadgeText on top of the static toolbar icon. This keeps visible
+  // feedback for working/done/error states without needing canvas.
+  if (!HAS_OFFSCREEN_CANVAS) {
+    try {
+      if (state === "working") {
+        chrome.action.setBadgeBackgroundColor({ color: "#0d9488", tabId });
+        chrome.action.setBadgeText({ text: "…", tabId });
+      } else if (state === "done") {
+        chrome.action.setBadgeBackgroundColor({ color: "#0d9488", tabId });
+        chrome.action.setBadgeText({ text: count > 0 ? String(count) : "\u2713", tabId });
+      } else if (state === "error") {
+        chrome.action.setBadgeBackgroundColor({ color: "#ef4444", tabId });
+        chrome.action.setBadgeText({ text: "!", tabId });
+      } else {
+        chrome.action.setBadgeText({ text: "", tabId });
+      }
+    } catch { /* badge API unavailable */ }
+    return;
+  }
+
   try {
     // Clear any badge text (we use full icon replacement instead)
     chrome.action.setBadgeText({ text: "", tabId });
@@ -773,6 +811,12 @@ async function readSSEStream(response, extractDelta, tabId, streamAction = "stre
  * Call Claude API with streaming.
  */
 async function callClaudeStreaming(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result", lang = "auto") {
+  // Safari: batch mode (non-streaming) in small batches to avoid SW timeout
+  // and unreliable SSE streaming in Safari's service worker.
+  if (IS_SAFARI) {
+    return callClaudeBatched(apiKey, headlines, tabId, mode, streamAction, lang);
+  }
+
   const { systemPrompt, userPrompt } = buildPrompts(headlines, mode, lang);
 
   try {
@@ -813,6 +857,61 @@ async function callClaudeStreaming(apiKey, headlines, tabId, mode = "news", stre
   } catch (err) {
     return { error: `Fout: ${err.message}` };
   }
+}
+
+/**
+ * Safari-specific: process Claude in small non-streaming batches.
+ * Each batch completes quickly enough to avoid SW termination, and avoids
+ * SSE streaming via ReadableStream which is unreliable in Safari's SW.
+ */
+async function callClaudeBatched(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result", lang = "auto") {
+  const BATCH_SIZE = 8;
+  const allResults = [];
+
+  for (let i = 0; i < headlines.length; i += BATCH_SIZE) {
+    const batch = headlines.slice(i, i + BATCH_SIZE);
+    const { systemPrompt, userPrompt } = buildPrompts(batch, mode, lang);
+
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: CONFIG.CLAUDE_MAX_TOKENS,
+          stream: false,
+          system: systemPrompt,
+          messages: [{ role: "user", content: userPrompt }],
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        if (response.status === 401) return { error: "Invalid API key. Check your key in settings." };
+        if (response.status === 429) return { error: "Rate limit reached. Try again in a minute." };
+        return { error: `API error (${response.status}): ${err.error?.message || "Unknown error"}` };
+      }
+
+      const data = await response.json();
+      // Claude returns content as an array of blocks; join all text blocks.
+      const text = (data.content || []).map((b) => b?.text || "").join("");
+      try {
+        const results = parseAndSendResults(text, tabId, streamAction);
+        allResults.push(...results);
+      } catch {
+        // Skip unparseable batch
+      }
+    } catch (err) {
+      return { error: `Error: ${err.message}` };
+    }
+  }
+
+  return { results: allResults };
 }
 
 /**
@@ -883,10 +982,8 @@ function parseAndSendResults(text, tabId, streamAction = "stream-result") {
  * Call OpenAI API (GPT-4o mini) with streaming.
  */
 async function callOpenAI(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result", lang = "auto") {
-  const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
-
   // Safari: batch mode (non-streaming) in small batches to avoid SW timeout
-  if (isSafari) {
+  if (IS_SAFARI) {
     return callOpenAIBatched(apiKey, headlines, tabId, mode, streamAction, lang);
   }
 
@@ -1254,7 +1351,9 @@ async function callClaudeForSummary(apiKey, systemPrompt, userPrompt, tabId, url
         "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001", max_tokens: GIST_CONFIG.CLAUDE_MAX_TOKENS, stream: true,
+        model: "claude-haiku-4-5-20251001", max_tokens: GIST_CONFIG.CLAUDE_MAX_TOKENS,
+        // Safari: non-streaming — SSE via ReadableStream is unreliable in SW
+        stream: !IS_SAFARI,
         system: systemPrompt, messages: [{ role: "user", content: userPrompt }],
       }),
     });
@@ -1263,6 +1362,13 @@ async function callClaudeForSummary(apiKey, systemPrompt, userPrompt, tabId, url
       if (response.status === 401) return { error: "Invalid API key." };
       if (response.status === 429) return { error: "Rate limit reached. Try again later." };
       return { error: `API error (${response.status}): ${err.error?.message || "Unknown error"}` };
+    }
+    if (IS_SAFARI) {
+      const data = await response.json();
+      const text = (data.content || []).map((b) => b?.text || "").join("");
+      if (!text) return { error: "Empty response from Claude." };
+      sendGistStreamChunk(tabId, url, text);
+      return { summary: text };
     }
     return await readSSEStreamText(response, (event) =>
       event.type === "content_block_delta" ? event.delta?.text : null, tabId, url);
@@ -1275,7 +1381,8 @@ async function callOpenAIForSummary(apiKey, systemPrompt, userPrompt, tabId, url
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "gpt-4o-mini", stream: true, temperature: 0.3,
+        // Safari: non-streaming — SSE via ReadableStream is unreliable in SW
+        model: "gpt-4o-mini", stream: !IS_SAFARI, temperature: 0.3,
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
       }),
     });
@@ -1284,6 +1391,13 @@ async function callOpenAIForSummary(apiKey, systemPrompt, userPrompt, tabId, url
       if (response.status === 401) return { error: "Invalid OpenAI API key." };
       if (response.status === 429) return { error: "Rate limit reached." };
       return { error: `OpenAI error (${response.status}): ${err.error?.message || "Unknown error"}` };
+    }
+    if (IS_SAFARI) {
+      const data = await response.json();
+      const text = data.choices?.[0]?.message?.content || "";
+      if (!text) return { error: "Empty response from OpenAI." };
+      sendGistStreamChunk(tabId, url, text);
+      return { summary: text };
     }
     return await readSSEStreamText(response, (event) =>
       event.choices?.[0]?.delta?.content || null, tabId, url);

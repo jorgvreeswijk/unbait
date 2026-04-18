@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+    <link rel="stylesheet" href="../Style.css">
+</head>
+<body>
+    <main>
+        <div class="hero">
+            <svg class="logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="96" height="96" aria-label="Unbait">
+                <circle cx="64" cy="64" r="60" fill="#0d9488"/>
+                <text x="64" y="64" text-anchor="middle" dominant-baseline="central" font-family="-apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif" font-size="76" font-weight="900" fill="white">U</text>
+            </svg>
+            <h1>Unbait</h1>
+            <p class="tagline">Replace clickbait headlines with clear, informative titles and get instant AI summaries.</p>
+        </div>
+
+        <section class="card">
+            <h2>Enable the extension</h2>
+            <ol class="steps">
+                <li>Tap <strong>Open Settings</strong> below</li>
+                <li>Go to <strong>Apps&nbsp;→&nbsp;Safari&nbsp;→&nbsp;Extensions</strong></li>
+                <li>Turn on <strong>Unbait</strong></li>
+                <li>Tap <strong>All Websites&nbsp;→&nbsp;Allow</strong></li>
+            </ol>
+            <button class="btn-primary" onclick="openSettings()">Open Settings</button>
+        </section>
+
+        <section class="card">
+            <h2>How to use</h2>
+            <ol class="steps">
+                <li>Open any news site or YouTube in Safari</li>
+                <li>Tap the <strong>aA</strong> button in the address bar</li>
+                <li>Tap <strong>Unbait</strong> in the menu</li>
+                <li>Paste your API key &amp; tap <strong>De-clickbait!</strong></li>
+            </ol>
+            <p class="muted">Need an API key? Tap the <strong>?</strong> icon inside the Unbait popup for setup instructions for Anthropic, OpenAI, or Gemini.</p>
+        </section>
+
+        <section class="card">
+            <h2>Why this plugin exists</h2>
+            <p>Many news sites use vague, curiosity-driven headlines that hide what an article is actually about. You end up clicking articles that don't interest you and missing ones that do. Unbait reads the article and rewrites the headline so you can tell at a glance whether it's worth your time.</p>
+            <p>With <strong>Gist summaries</strong>, you can also get a quick AI-generated verdict on any article or video — helping you decide in seconds whether it's worth your time.</p>
+        </section>
+
+        <section class="card">
+            <h2>Good to know</h2>
+            <p>AI-generated titles are interpretations, not objective truths. Nuance can be lost, or the AI may emphasize a detail that isn't the main point. You're trading the editor's sensationalism for an algorithm's best guess. The original title is always one tap away.</p>
+            <p>Clickbait exploits the <em>curiosity gap</em>: the space between what you know and what you want to know. A clear title closes that gap, letting you decide calmly whether to read on.</p>
+        </section>
+
+        <section class="card">
+            <h2>Limitations</h2>
+            <p>Unbait needs to briefly fetch each article to generate a better title. Articles behind a login wall or paywall cannot be read, so those headlines will remain unchanged.</p>
+        </section>
+
+        <section class="card">
+            <h2>Browser warnings</h2>
+            <p>Safari may warn that Unbait can "read and modify webpages." This is correct: Unbait needs to read headlines and replace them with better ones. However, Unbait only activates on sites you explicitly enable. It does not run in the background or access any site without your permission. No data is collected, no browsing history is stored, and no information is sent anywhere except directly to your chosen AI provider.</p>
+            <p>On YouTube, processing many video titles at once may occasionally trigger a bot-detection check ("Are you human?"). This is normal. Simply complete the check and continue. Unbait fetches video transcripts to generate better titles, and many rapid requests can look like automated traffic to YouTube.</p>
+        </section>
+
+        <section class="card">
+            <h2>Content processing</h2>
+            <p>Unbait only processes content you already have access to in Safari. Brief excerpts are sent to your AI provider to generate better titles. No original article text or transcripts are stored or redistributed. Only the generated titles are cached locally (7 days).</p>
+        </section>
+
+        <section class="card">
+            <h2>Disclaimer</h2>
+            <p>Unbait is provided as-is, without warranty. The author is not responsible for any costs, data loss, or other damages resulting from its use. Your API key is stored locally on your device and sent directly to your chosen provider over HTTPS.</p>
+            <p class="links">
+                <a href="https://unbait.link/privacy">Privacy Policy</a>
+                &middot;
+                <a href="https://github.com/jorgvreeswijk/unbait/blob/main/LICENSE">GPL-3.0 License</a>
+                &middot;
+                <a href="https://unbait.link">unbait.link</a>
+            </p>
+        </section>
+
+        <section class="card feedback">
+            <div class="icon-row">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0d9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            </div>
+            <h2>Feedback</h2>
+            <p>Help us cut through the noise. Share your feedback, thoughts, or compliments.</p>
+            <a href="mailto:unbait@in-flux.app?subject=Unbait%20feedback" class="btn-secondary">Send Email</a>
+        </section>
+
+        <section class="card feedback">
+            <div class="icon-row">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0d9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 11h1a3 3 0 0 1 0 6h-1"/><path d="M9 12v6"/><path d="M13 12v6"/><path d="M14 7.5c-1 0-1.44.5-3 .5s-2-.5-3-.5-1.72.5-2.5.5a2.5 2.5 0 0 1 0-5c.78 0 1.57.5 2.5.5S9.44 2 11 2s2 1.5 3 1.5 1.72-.5 2.5-.5a2.5 2.5 0 0 1 0 5c-.78 0-1.5-.5-2.5-.5Z"/><path d="M5 8v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8"/></svg>
+            </div>
+            <h2>Support Unbait</h2>
+            <p>Unbait is free and open source. If it saves you from clickbait, consider buying me a beer.</p>
+            <div class="btn-row">
+                <a href="https://github.com/sponsors/jorgvreeswijk" class="btn-secondary">GitHub Sponsors</a>
+                <a href="https://www.paypal.com/paypalme/unbaitlink" class="btn-secondary">PayPal</a>
+            </div>
+        </section>
+
+        <footer>
+            <p class="version">Version 1.3.1</p>
+        </footer>
+    </main>
+
+    <script>
+        function openSettings() {
+            try {
+                window.webkit.messageHandlers.controller.postMessage("open-settings");
+            } catch (e) {
+                console.error(e);
+            }
+        }
+    </script>
+</body>
+</html>
