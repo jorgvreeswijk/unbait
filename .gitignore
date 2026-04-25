@@ -17,3 +17,6 @@ node_modules/
 
 # Claude Code
 .claude/
+
+# Local notes / plans (not published)
+docs/notes/

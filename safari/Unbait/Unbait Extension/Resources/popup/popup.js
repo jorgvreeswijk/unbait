@@ -247,10 +247,29 @@ function updateGistToggleState() {
   updateGistDepthVisibility();
 }
 
-gistToggle.addEventListener("change", () => {
+gistToggle.addEventListener("change", async () => {
+  if (gistToggle.checked) {
+    // Gist needs to fetch arbitrary article URLs to read context. Without
+    // <all_urls> permission the SW fetches are CORS-blocked and summaries
+    // fall back to title-only. Ask once; if declined, leave Gist on but
+    // show the banner so user can retry.
+    await requestGistFetchPermission();
+  }
   chrome.storage.local.set({ gistEnabled: gistToggle.checked });
   updateGistToggleState();
+  refreshGistPermissionBanner();
 });
+
+async function requestGistFetchPermission() {
+  try {
+    const has = await chrome.permissions.contains({ origins: ["<all_urls>"] });
+    if (has) return true;
+    return await chrome.permissions.request({ origins: ["<all_urls>"] });
+  } catch {
+    // Safari may not support optional <all_urls> grants — assume allowed.
+    return true;
+  }
+}
 
 // Gist settings panel toggle (gear icon)
 document.getElementById("btn-gist-settings").addEventListener("click", () => {
@@ -368,7 +387,7 @@ gistAutocloseToggle.addEventListener("change", () => {
 });
 
 // Load gist settings on popup open
-chrome.storage.local.get(["gistEnabled", "summaryLanguage", "ytGistDepth", "gistClickMode", "gistAutoClose"], (data) => {
+chrome.storage.local.get(["gistEnabled", "summaryLanguage", "ytGistDepth", "gistClickMode", "gistAutoClose"], async (data) => {
   gistToggle.checked = data.gistEnabled !== false;
   updateGistToggleState();
   updateClickModeUI(data.gistClickMode || "summary");
@@ -379,6 +398,29 @@ chrome.storage.local.get(["gistEnabled", "summaryLanguage", "ytGistDepth", "gist
   gistSlider.value = idx >= 0 ? idx : 2;
   updateGistSlider(parseInt(gistSlider.value, 10));
   updateGistDepthVisibility();
+
+  await refreshGistPermissionBanner();
+});
+
+async function refreshGistPermissionBanner() {
+  const banner = document.getElementById("gist-permission-banner");
+  if (!banner) return;
+  if (!gistToggle.checked) { banner.classList.add("hidden"); return; }
+  try {
+    const has = await chrome.permissions.contains({ origins: ["<all_urls>"] });
+    banner.classList.toggle("hidden", has);
+  } catch {
+    // Safari: optional <all_urls> not supported — hide banner.
+    banner.classList.add("hidden");
+  }
+}
+
+document.getElementById("btn-grant-gist-permission")?.addEventListener("click", async () => {
+  const granted = await requestGistFetchPermission();
+  if (granted) {
+    document.getElementById("gist-permission-banner")?.classList.add("hidden");
+    updateGistToggleState();
+  }
 });
 
 // Load saved provider + API key on popup open
@@ -667,7 +709,15 @@ function originsForHostname(hostname) {
 
 async function requestSitePermission(hostname) {
   try {
-    return await chrome.permissions.request({ origins: originsForHostname(hostname) });
+    // Always need site-specific permission for content script injection.
+    // <all_urls> additionally enables fetching article bodies (used by both
+    // de-clickbait context enrichment and Gist summaries) — bundle into one
+    // prompt if not already granted, so the user sees a single dialog.
+    const origins = originsForHostname(hostname);
+    let hasAllUrls = false;
+    try { hasAllUrls = await chrome.permissions.contains({ origins: ["<all_urls>"] }); } catch {}
+    if (!hasAllUrls) origins.push("<all_urls>");
+    return await chrome.permissions.request({ origins });
   } catch {
     // Safari may not support dynamic permissions — allow anyway
     return true;

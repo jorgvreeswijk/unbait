@@ -16,7 +16,14 @@ const _state = {
   // Click discrimination for single/double click on icons
   clickTimer: null,
   clickTarget: null,
+  // Lazy-load observer: MutationObserver + scroll listener for new DOM nodes
+  contentObserver: null,
+  contentObserverDebounce: null,
+  contentScrollHandler: null,
 };
+
+// Gist source: hasContent flag per URL (title-only vs article-text)
+const _newsGistSource = new Map();
 
 // Gist state is managed by shared.js (window.Unbait)
 
@@ -87,6 +94,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     _state.isProcessing = true;
     processHeadlines().then((result) => {
       _state.isProcessing = false;
+      startContentObserving();
       sendResponse(result);
     }).catch((err) => {
       _state.isProcessing = false;
@@ -868,8 +876,25 @@ function getGistCache(url) {
   return Unbait.getGistCache(url, GIST_CACHE_PREFIX);
 }
 
-function cacheGistEntry(url, summary) {
-  Unbait.cacheGistEntry(url, summary, GIST_CACHE_PREFIX, CONFIG.CACHE_MAX_ENTRIES);
+function cacheGistEntry(url, summary, hasContent) {
+  Unbait.cacheGistEntry(url, summary, GIST_CACHE_PREFIX, CONFIG.CACHE_MAX_ENTRIES, { hasContent });
+}
+
+function newsGistUpdateFooter(footer, url, hasContent) {
+  footer.textContent = "";
+  const domain = document.createElement("span");
+  try { domain.textContent = new URL(url).hostname; } catch { domain.textContent = ""; }
+  footer.appendChild(domain);
+  if (hasContent === undefined || hasContent === null) return;
+  const sep = document.createElement("span");
+  sep.textContent = " \u00b7 ";
+  sep.style.opacity = "0.4";
+  footer.appendChild(sep);
+  const badge = document.createElement("span");
+  badge.textContent = hasContent ? "article" : "title only";
+  badge.style.fontWeight = "500";
+  badge.className = hasContent ? "gist-source-transcript" : "gist-source-title";
+  footer.appendChild(badge);
 }
 
 // Gist stream/result handlers
@@ -881,10 +906,15 @@ function handleGistStream(message) {
 
 function handleGistResult(message) {
   Unbait.gistPendingRequests.delete(message.url);
+  if (typeof message.hasContent === "boolean") {
+    _newsGistSource.set(message.url, message.hasContent);
+  }
   if (message.url !== Unbait.gistActiveUrl || !Unbait.gistActiveOverlay) {
-    if (message.summary) cacheGistEntry(message.url, message.summary);
+    if (message.summary) cacheGistEntry(message.url, message.summary, message.hasContent);
     return;
   }
+  const footer = Unbait.gistActiveOverlay.querySelector(".gist-overlay-footer");
+  if (footer) newsGistUpdateFooter(footer, message.url, message.hasContent);
   const body = Unbait.gistActiveOverlay.querySelector(".gist-overlay-body");
   if (!body) return;
   if (message.error) {
@@ -895,7 +925,7 @@ function handleGistResult(message) {
     body.appendChild(errP);
   } else if (message.summary) {
     Unbait.gistRenderText(body, message.summary);
-    cacheGistEntry(message.url, message.summary);
+    cacheGistEntry(message.url, message.summary, message.hasContent);
   }
 }
 
@@ -907,12 +937,19 @@ async function handleGistClick(el, icon) {
 
   if (Unbait.gistActiveUrl === url && Unbait.gistActiveOverlay) { Unbait.gistCloseOverlay(); return; }
 
-  Unbait.gistShowOverlay(icon, url);
+  const footerRenderer = (footer, u) => {
+    const known = _newsGistSource.get(u);
+    newsGistUpdateFooter(footer, u, known === undefined ? null : known);
+  };
+  Unbait.gistShowOverlay(icon, url, footerRenderer);
 
   // Check cache first
   const cached = await getGistCache(url);
   if (cached) {
+    if (typeof cached.hasContent === "boolean") _newsGistSource.set(url, cached.hasContent);
     if (Unbait.gistActiveOverlay && Unbait.gistActiveUrl === url) {
+      const footer = Unbait.gistActiveOverlay.querySelector(".gist-overlay-footer");
+      if (footer) newsGistUpdateFooter(footer, url, cached.hasContent);
       const body = Unbait.gistActiveOverlay.querySelector(".gist-overlay-body");
       if (body) Unbait.gistRenderText(body, cached.summary);
     }
@@ -949,12 +986,19 @@ function handleGistClickFromGIcon(gIcon) {
 
   if (Unbait.gistActiveUrl === url && Unbait.gistActiveOverlay) { Unbait.gistCloseOverlay(); return; }
 
-  Unbait.gistShowOverlay(gIcon, url);
+  const footerRenderer = (footer, u) => {
+    const known = _newsGistSource.get(u);
+    newsGistUpdateFooter(footer, u, known === undefined ? null : known);
+  };
+  Unbait.gistShowOverlay(gIcon, url, footerRenderer);
 
   // Check cache first
   getGistCache(url).then((cached) => {
     if (cached) {
+      if (typeof cached.hasContent === "boolean") _newsGistSource.set(url, cached.hasContent);
       if (Unbait.gistActiveOverlay && Unbait.gistActiveUrl === url) {
+        const footer = Unbait.gistActiveOverlay.querySelector(".gist-overlay-footer");
+        if (footer) newsGistUpdateFooter(footer, url, cached.hasContent);
         const body = Unbait.gistActiveOverlay.querySelector(".gist-overlay-body");
         if (body) Unbait.gistRenderText(body, cached.summary);
       }
@@ -1121,7 +1165,62 @@ function findHeadlines() {
     }
   });
 
+  // Strategy 5: Utility-class sites (Tailwind, Bootstrap, etc.) — anchors
+  // wrapping a bold-styled descendant. Catches sites like Duic.nl that have
+  // no semantic article/card/headline class names.
+  // Pattern: <a href="..."><span class="font-bold ...">Headline text</span></a>
+  document.querySelectorAll("a[href]").forEach((anchor) => {
+    if (seen.has(anchor) || seen.has(anchor.href)) return;
+    if (isNavigationElement(anchor)) return;
+    if (anchor.querySelector("a")) return; // nested anchors — skip outer
+    if (anchor.querySelector(".unbait-replaced, .unbait-icon, .gist-icon")) return;
+    // Skip if a descendant was already matched by an earlier strategy
+    if (anchor.querySelector("h1, h2, h3, h4, h5")) return;
+
+    const boldEl = _findBoldDescendant(anchor);
+    if (!boldEl) return;
+
+    const text = extractTitleText(boldEl);
+    if (text.length < CONFIG.MIN_HEADLINE_LENGTH || text.length > CONFIG.MAX_HEADLINE_LENGTH) return;
+
+    const rect = anchor.getBoundingClientRect();
+    if (rect.width < CONFIG.MIN_LINK_WIDTH_PX || rect.height < CONFIG.MIN_LINK_HEIGHT_PX) return;
+    const boldStyle = window.getComputedStyle(boldEl);
+    if (parseFloat(boldStyle.fontSize) < CONFIG.MIN_FONT_SIZE_PX) return;
+    // Reject ALL CAPS (usually section labels, categories, badges)
+    if (text === text.toUpperCase() && text.length < 40) return;
+
+    // Use the bold element as the headline target — cleaner text replacement
+    // than using the whole anchor (which wraps images, timestamps, categories).
+    addHeadline(found, seen, boldEl, anchor.href);
+  });
+
   return found;
+}
+
+/**
+ * Find a bold-weight descendant of `anchor` (or the anchor itself).
+ * Checks both utility class names (font-bold, font-semibold, font-weight-bold)
+ * and computed font-weight >= 600. Returns the bold element or null.
+ */
+function _findBoldDescendant(anchor) {
+  const BOLD_CLASS_RE = /(^|\s)(font-bold|font-semibold|font-weight-bold|fw-bold|fw-semibold)(\s|$)/;
+  const check = (el) => {
+    const cls = el.className;
+    if (typeof cls === "string" && BOLD_CLASS_RE.test(cls)) return true;
+    const weight = parseInt(window.getComputedStyle(el).fontWeight, 10);
+    return weight >= 600;
+  };
+  if (check(anchor)) return anchor;
+  // Walk descendants — stop at first bold element with non-trivial text
+  const walker = document.createTreeWalker(anchor, NodeFilter.SHOW_ELEMENT, {
+    acceptNode: (el) => {
+      const text = el.textContent.trim();
+      if (text.length < 15) return NodeFilter.FILTER_SKIP;
+      return check(el) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+    },
+  });
+  return walker.nextNode();
 }
 
 /**
@@ -1219,5 +1318,75 @@ function looksLikeHeadlineLink(anchor) {
 
   return false;
 }
+
+// ---------------------------------------------------------------------------
+// Lazy-load observer: MutationObserver + scroll listener for new DOM nodes
+// Generic pattern — runs for any site, picks up headlines as they enter DOM.
+// ---------------------------------------------------------------------------
+
+function startContentObserving() {
+  if (_state.contentObserver) return;
+
+  const processNewTitles = () => {
+    if (_state.isProcessing) return;
+    const headlines = findHeadlines();
+    if (headlines.length === 0) return;
+
+    _state.isProcessing = true;
+    processHeadlines()
+      .then(() => { _state.isProcessing = false; })
+      .catch(() => { _state.isProcessing = false; });
+  };
+
+  _state.contentObserver = new MutationObserver(() => {
+    if (_state.contentObserverDebounce) clearTimeout(_state.contentObserverDebounce);
+    _state.contentObserverDebounce = setTimeout(processNewTitles, 400);
+  });
+  _state.contentObserver.observe(document.body, { childList: true, subtree: true });
+
+  let scrollDebounce = null;
+  _state.contentScrollHandler = () => {
+    if (scrollDebounce) clearTimeout(scrollDebounce);
+    scrollDebounce = setTimeout(processNewTitles, 300);
+  };
+  window.addEventListener("scroll", _state.contentScrollHandler, { passive: true });
+}
+
+function stopContentObserving() {
+  if (!_state.contentObserver) return;
+  _state.contentObserver.disconnect();
+  _state.contentObserver = null;
+  if (_state.contentObserverDebounce) {
+    clearTimeout(_state.contentObserverDebounce);
+    _state.contentObserverDebounce = null;
+  }
+  if (_state.contentScrollHandler) {
+    window.removeEventListener("scroll", _state.contentScrollHandler);
+    _state.contentScrollHandler = null;
+  }
+}
+
+async function checkContentAlwaysOn() {
+  try {
+    // YouTube has its own observer in youtube.js — don't compete.
+    const host = window.location.hostname;
+    if (/(^|\.)youtube\.com$/.test(host)) return;
+
+    const data = await chrome.storage.local.get("alwaysOnSites");
+    const sites = data.alwaysOnSites || [];
+    const match = sites.some((s) => {
+      if (!s) return false;
+      return host === s || host.endsWith("." + s) || host.endsWith(s);
+    });
+    if (match) startContentObserving();
+    else stopContentObserving();
+  } catch { /* ignore */ }
+}
+
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.alwaysOnSites) checkContentAlwaysOn();
+});
+
+checkContentAlwaysOn();
 
 } // end double-injection guard

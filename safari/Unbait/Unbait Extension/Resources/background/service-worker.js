@@ -1266,17 +1266,18 @@ async function handleSummarizeArticle(message, tabId) {
     const { url, title, context } = message;
     let articleContext = context || "";
     if (!articleContext && url) articleContext = await fetchArticleContext(url);
+    const hasContent = !!articleContext;
 
     const data = await chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini"]);
     const provider = data.provider || "anthropic";
     const apiKey = data[`apiKey_${provider}`];
-    if (!apiKey) { sendGistResult(tabId, url, { error: "No API key set. Open the Unbait popup." }); return; }
+    if (!apiKey) { sendGistResult(tabId, url, { error: "No API key set. Open the Unbait popup.", hasContent }); return; }
 
     const { systemPrompt, userPrompt } = await buildSummaryPrompt(title, articleContext || null);
     const result = await callProviderForSummary(provider, apiKey, systemPrompt, userPrompt, tabId, url);
-    sendGistResult(tabId, url, result);
+    sendGistResult(tabId, url, { ...result, hasContent });
   } catch (err) {
-    sendGistResult(tabId, message.url, { error: err.message });
+    sendGistResult(tabId, message.url, { error: err.message, hasContent: false });
   }
 }
 
@@ -1309,15 +1310,37 @@ function sendGistStreamChunk(tabId, url, text) {
   chrome.tabs.sendMessage(tabId, { action: "gist-stream", url, text }).catch(() => {});
 }
 
-async function fetchArticleContext(url) {
+async function _fetchHtml(url) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CONFIG.CONTEXT_TIMEOUT_MS);
-    const resp = await fetch(url, { signal: controller.signal, credentials: "omit", referrer: "" });
+    let resp;
+    try {
+      resp = await fetch(url, { signal: controller.signal, credentials: "omit", referrer: "" });
+    } catch (fetchErr) {
+      clearTimeout(timeoutId);
+      // CORS/permission failures throw a generic TypeError. Distinguish by
+      // checking whether host_permission for this origin was granted.
+      try {
+        const origin = new URL(url).origin + "/*";
+        const has = await chrome.permissions.contains({ origins: [origin] });
+        if (!has) {
+          console.warn(`[Unbait] fetch blocked — no host permission for ${origin}. Toggle Gist off/on or grant in popup.`);
+          return "";
+        }
+      } catch { /* ignore */ }
+      throw fetchErr;
+    }
     clearTimeout(timeoutId);
-    if (!resp.ok) return "";
+    if (!resp.ok) {
+      console.debug(`[Unbait] _fetchHtml: ${url} → HTTP ${resp.status}`);
+      return "";
+    }
     const contentType = resp.headers.get("content-type") || "";
-    if (!contentType.includes("text/html") && !contentType.includes("text/xml") && !contentType.includes("application/xhtml")) return "";
+    if (!contentType.includes("text/html") && !contentType.includes("text/xml") && !contentType.includes("application/xhtml")) {
+      console.debug(`[Unbait] _fetchHtml: ${url} → non-html content-type: ${contentType}`);
+      return "";
+    }
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let html = "";
@@ -1329,8 +1352,128 @@ async function fetchArticleContext(url) {
       bytesRead += value.length;
     }
     reader.cancel();
-    return extractContext(html);
-  } catch { return ""; }
+    return html;
+  } catch (err) {
+    console.debug(`[Unbait] _fetchHtml: ${url} → exception: ${err.message}`);
+    return "";
+  }
+}
+
+// Minimum chars below which we treat the page as an interstitial/thin page
+// and look for a hop target to the real article.
+const MIN_CONTEXT_CHARS = 500;
+
+/**
+ * Detect hop target in raw HTML for interstitial/click-through pages.
+ * Returns a different-site absolute URL or null. Works for meta-refresh,
+ * canonical, continue-style anchor text, and inline JSON blobs that
+ * aggregators (NewsNow, Nuxt/Vue SSR) embed.
+ */
+function _findHopTarget(html, baseUrl) {
+  let baseHost;
+  try { baseHost = new URL(baseUrl).hostname; } catch { return null; }
+  const baseRoot = baseHost.split(".").slice(-2).join(".");
+  const resolve = (href) => {
+    try { return new URL(href, baseUrl).href; } catch { return null; }
+  };
+  const isDifferentSite = (absolute) => {
+    try {
+      const h = new URL(absolute).hostname;
+      const hRoot = h.split(".").slice(-2).join(".");
+      return hRoot !== baseRoot;
+    } catch { return false; }
+  };
+
+  // Pattern 1: meta refresh with URL
+  const meta = html.match(/<meta[^>]+http-equiv=["']?refresh["']?[^>]+content=["'][^"']*url=([^"'>\s]+)/i);
+  if (meta) {
+    const abs = resolve(meta[1]);
+    if (abs && isDifferentSite(abs) && /^https?:/i.test(abs)) {
+      console.debug(`[Unbait] hop p1 (meta-refresh): ${abs}`);
+      return abs;
+    }
+  }
+
+  // Pattern 2: cross-site canonical link
+  const canonical = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)
+    || html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i);
+  if (canonical) {
+    const abs = resolve(canonical[1]);
+    if (abs && isDifferentSite(abs) && /^https?:/i.test(abs)) {
+      console.debug(`[Unbait] hop p2 (canonical): ${abs}`);
+      return abs;
+    }
+  }
+
+  // Pattern 3: "continue to article" / "lees verder" / "here" link
+  const continueRe = /\b(continue to article|continue|read (?:full|more|the full|original)|original article|lees verder|ga verder|volledig artikel|here|klik hier)\b/i;
+  const linkMatches = html.matchAll(/<a\b[^>]*\bhref=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi);
+  for (const m of linkMatches) {
+    const text = m[2].replace(/<[^>]+>/g, "").trim();
+    if (!continueRe.test(text)) continue;
+    const abs = resolve(m[1]);
+    if (abs && isDifferentSite(abs) && /^https?:/i.test(abs)) {
+      console.debug(`[Unbait] hop p3 (continue-link "${text.slice(0, 40)}"): ${abs}`);
+      return abs;
+    }
+  }
+
+  // Pattern 4: inline JSON blob with a url field (Vue/Nuxt SSR, e.g. NewsNow's
+  // __INITIAL_STATE__.page.clickthroughPageData.url).
+  const jsonUrlRe = /"(?:url|targetUrl|articleUrl|destinationUrl|finalUrl|redirectUrl)"\s*:\s*"((?:https?:|https?:\\?\/\\?\/)[^"]+)"/gi;
+  let jm;
+  while ((jm = jsonUrlRe.exec(html)) !== null) {
+    let candidate = jm[1]
+      .replace(/\\u002[fF]/g, "/")
+      .replace(/\\\//g, "/")
+      .replace(/&amp;/g, "&");
+    const abs = resolve(candidate);
+    if (abs && isDifferentSite(abs) && /^https?:\/\//i.test(abs)) {
+      console.debug(`[Unbait] hop p4 (inline JSON url field): ${abs}`);
+      return abs;
+    }
+  }
+
+  // Pattern 5: ?url=<encoded> query parameter embedded anywhere (e.g. in a
+  // form action or Vue router path). NewsNow's frozenPageString encodes the
+  // destination this way as `?url=https%3A%2F%2F...`.
+  const qpMatches = html.matchAll(/[?&]url=(https?%3A%2F%2F[^"'&\s<>]+)/gi);
+  for (const qm of qpMatches) {
+    try {
+      const decoded = decodeURIComponent(qm[1]);
+      const abs = resolve(decoded);
+      if (abs && isDifferentSite(abs) && /^https?:\/\//i.test(abs)) {
+        console.debug(`[Unbait] hop p5 (?url= param): ${abs}`);
+        return abs;
+      }
+    } catch { /* malformed encoding, try next */ }
+  }
+
+  return null;
+}
+
+async function fetchArticleContext(url, hopCount = 0) {
+  const html = await _fetchHtml(url);
+  if (!html) {
+    console.debug("[Unbait] fetchArticleContext: empty html for", url);
+    return "";
+  }
+  const context = extractContext(html);
+  console.debug(`[Unbait] fetchArticleContext: ${url} → ${context.length} chars (hop=${hopCount}, htmlSize=${html.length})`);
+
+  // Thin page → try one hop to the real article.
+  if (context.length < MIN_CONTEXT_CHARS && hopCount < 1) {
+    const hopUrl = _findHopTarget(html, url);
+    if (hopUrl) {
+      console.debug(`[Unbait] interstitial hop: ${url} → ${hopUrl}`);
+      const hopContext = await fetchArticleContext(hopUrl, hopCount + 1);
+      if (hopContext.length > context.length) return hopContext;
+    } else {
+      console.debug(`[Unbait] no hop target found in thin page ${url}`);
+    }
+  }
+
+  return context;
 }
 
 async function callProviderForSummary(provider, apiKey, systemPrompt, userPrompt, tabId, url) {
