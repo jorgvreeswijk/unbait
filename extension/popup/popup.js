@@ -4,6 +4,13 @@ if (/iP(hone|ad|od)/i.test(navigator.userAgent)) {
   document.body.classList.add("is-ios");
 }
 
+// Show the version from the manifest so the About label always stays in sync
+// with the actual build — no separate string to bump.
+try {
+  const versionLabel = document.getElementById("version-label");
+  if (versionLabel) versionLabel.textContent = `Version ${chrome.runtime.getManifest().version}`;
+} catch { /* getManifest unavailable — leave the static fallback text */ }
+
 const apiKeyInput = document.getElementById("api-key");
 const btnToggleKey = document.getElementById("btn-toggle-key");
 const btnSaveKey = document.getElementById("btn-save-key");
