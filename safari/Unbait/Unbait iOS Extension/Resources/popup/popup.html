@@ -21,6 +21,7 @@
       </div>
     </div>
     <p class="tagline">De-clickbait headlines and get AI-powered summaries</p>
+
     <!-- Statistics panel (opens from chart icon) -->
     <div id="stats-panel" class="hidden" style="margin-bottom: 0.5rem; padding: 0.6rem 0.75rem; background: #f0fdfa; border-radius: 6px; border: 1px solid #ccfbf1;">
       <div style="display: flex; flex-direction: column; gap: 6px;">
@@ -40,9 +41,9 @@
     </div>
 
     <!-- General Settings (opens from header gear icon) -->
-    <div id="settings-panel" class="hidden" style="margin-bottom: 0.5rem; padding: 0.5rem; background: #f9fafb; border-radius: 6px; border: 1px solid #e5e7eb;">
-      <label for="summary-language" style="font-size: 11px; color: #555; display: block; margin-bottom: 4px;">Language (titles &amp; summaries)</label>
-      <select id="summary-language" class="provider-select" style="margin-bottom: 0; font-size: 12px; padding: 5px 8px;">
+    <div id="settings-panel" class="hidden settings-panel">
+      <label for="summary-language" class="settings-label">Language (titles &amp; summaries)</label>
+      <select id="summary-language" class="provider-select settings-select">
         <option value="auto">Same as content (auto)</option>
         <option value="nl">Nederlands</option>
         <option value="en">English</option>
@@ -50,6 +51,60 @@
         <option value="fr">Fran&ccedil;ais</option>
         <option value="es">Espa&ntilde;ol</option>
       </select>
+
+      <!-- Gist subsection -->
+      <div class="settings-section">
+        <div class="settings-heading">Gist summaries</div>
+        <div class="settings-row">
+          <span class="settings-label">Single click behavior</span>
+          <div class="click-mode-toggle">
+            <button id="click-mode-summary" class="click-mode-btn active" title="Single click shows summary">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>
+              Summary
+            </button>
+            <button id="click-mode-title" class="click-mode-btn" title="Single click toggles title">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+              Title
+            </button>
+          </div>
+        </div>
+        <div id="click-mode-hint" class="settings-hint">Double click toggles title</div>
+        <label class="settings-toggle">
+          <input type="checkbox" id="gist-autoclose-toggle" class="yt-checkbox">
+          <span>Auto-close gist when scrolling away</span>
+        </label>
+      </div>
+
+      <!-- YouTube subsection (only visible when youtube.com is in the sites list) -->
+      <div id="youtube-settings" class="settings-section hidden">
+        <div class="settings-heading">YouTube</div>
+        <div class="settings-label">Title rewriting depth</div>
+        <div class="settings-slider-row">
+          <span class="settings-slider-end">Fast</span>
+          <input type="range" id="yt-transcript-slider" min="1" max="4" value="2" step="1" class="yt-slider">
+          <span class="settings-slider-end">Precise</span>
+        </div>
+        <div id="yt-slider-label" class="settings-hint">Recommended balance</div>
+        <label class="settings-toggle">
+          <input type="checkbox" id="yt-thumbnails-toggle" class="yt-checkbox">
+          <span>Replace clickbait thumbnails with neutral frame</span>
+        </label>
+        <label class="settings-toggle">
+          <input type="checkbox" id="yt-sponsor-toggle" class="yt-checkbox">
+          <span>Detect and skip in-video sponsors</span>
+        </label>
+        <label class="settings-toggle" id="yt-sponsor-auto-row" style="display: none; margin-left: 1.5rem;">
+          <input type="checkbox" id="yt-sponsor-auto-toggle" class="yt-checkbox">
+          <span>Skip automatically (no button)</span>
+        </label>
+        <div id="yt-sponsor-hint" class="settings-hint" style="display: none;">Finds creator-read ads &amp; self-promo from the transcript. AI boundaries may be a few seconds off.</div>
+        <div class="settings-hint" style="margin-top: 0.4rem;">YouTube summary depth</div>
+        <div class="settings-slider-row">
+          <span id="gist-depth-value" class="settings-slider-end">50%</span>
+          <input type="range" id="gist-transcript-slider" class="yt-slider" min="0" max="5" step="1" value="2">
+        </div>
+        <div id="gist-slider-label" class="settings-hint">First half — balanced</div>
+      </div>
     </div>
 
     <div class="section">
@@ -158,8 +213,9 @@
     <hr>
 
     <button id="btn-declickbait" class="btn-primary" disabled>
-      De-clickbait!
+      De-clickbait this page
     </button>
+    <div class="settings-hint" style="text-align: center; margin-top: 4px;">One-time scan for this page</div>
 
     <div id="status" class="status-msg" role="status" aria-live="polite"></div>
 
@@ -171,11 +227,14 @@
     <hr>
 
     <div class="section">
-      <label>Always On</label>
-      <button id="btn-toggle-site" class="btn-site" disabled>
-        <span id="toggle-site-text">Enable for this site</span>
-      </button>
+      <label>Always-on mode for this site</label>
+      <div id="site-mode-toggle" class="site-mode-toggle">
+        <button class="site-mode-btn active" data-mode="off">Off</button>
+        <button class="site-mode-btn" data-mode="gist">Gist</button>
+        <button class="site-mode-btn" data-mode="full">Full</button>
+      </div>
       <div id="current-site" class="current-site"></div>
+      <div id="site-mode-hint" class="settings-hint" style="margin-top: 4px; text-align: center;">Unbait stays off here. Use the button above for one-time scans.</div>
 
       <button id="btn-manage-sites" class="btn-link">Manage sites ›</button>
 
@@ -185,125 +244,30 @@
           <input type="text" id="add-site-input" placeholder="e.g. www.example.com">
           <button id="btn-add-site" class="btn-add">+</button>
         </div>
+
         <hr style="margin: 8px 0; border: none; border-top: 1px solid #e5e7eb;">
+
+        <label class="settings-toggle">
+          <input type="checkbox" id="always-gist-toggle" class="yt-checkbox">
+          <span>Apply Gist to all other sites</span>
+        </label>
+        <div class="settings-hint">Auto-shows G icons on every site you visit. No API calls until you click a G.</div>
+
+        <div id="excluded-section" class="hidden" style="margin-top: 8px;">
+          <div class="settings-heading">Excluded from Always Gist</div>
+          <div id="excluded-list" class="sites-list"></div>
+          <div class="add-site-row">
+            <input type="text" id="add-excluded-input" placeholder="hostname to exclude">
+            <button id="btn-add-excluded" class="btn-add">+</button>
+          </div>
+        </div>
+
+        <hr style="margin: 8px 0; border: none; border-top: 1px solid #e5e7eb;">
+
         <button id="btn-clear-cache" class="btn-link btn-clear-cache">
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
           Clear title cache
         </button>
-      </div>
-    </div>
-
-    <hr>
-
-    <!-- YouTube Mode -->
-    <div id="youtube-section" class="yt-section">
-      <div class="yt-header">
-        <label class="yt-main-toggle">
-          <input type="checkbox" id="yt-titles-toggle" class="yt-checkbox" style="display: none;">
-          <svg id="yt-toggle-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
-          <span>Rewrite YouTube titles</span>
-        </label>
-        <div style="display: flex; gap: 0.25rem; margin-left: auto;">
-          <button id="btn-yt-settings" class="btn-info-inline has-tooltip tooltip-right"><span class="tooltip">Settings</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-          </button>
-          <button id="btn-yt-info" class="btn-info-inline has-tooltip tooltip-right"><span class="tooltip">How it works</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-          </button>
-        </div>
-      </div>
-      <div id="yt-status" class="toggle-status">Disabled</div>
-      <!-- YouTube Settings panel (gear icon) -->
-      <div id="yt-settings-panel" class="hidden" style="margin-top: 0.5rem; padding: 0.5rem; background: #f9fafb; border-radius: 6px; border: 1px solid #e5e7eb;">
-        <div id="yt-slider-container" class="hidden" style="padding: 0 0.15rem; margin-bottom: 0.5rem;">
-          <div style="font-size: 0.7rem; color: #374151; font-weight: 600; margin-bottom: 0.35rem;">Title rewriting</div>
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
-            <span style="font-size: 0.7rem; color: #9ca3af;">Fast</span>
-            <span style="font-size: 0.7rem; color: #6b7280; font-weight: 500;">Transcript depth</span>
-            <span style="font-size: 0.7rem; color: #9ca3af;">Precise</span>
-          </div>
-          <input type="range" id="yt-transcript-slider" min="1" max="4" value="2" step="1" class="yt-slider">
-          <div id="yt-slider-label" style="text-align: center; font-size: 0.7rem; color: #6b7280; margin-top: 0.15rem;">Recommended balance</div>
-        </div>
-        <div style="border-top: 1px solid #e5e7eb; padding-top: 0.5rem;">
-          <div style="font-size: 0.7rem; color: #374151; font-weight: 600; margin-bottom: 0.3rem;">Thumbnails</div>
-          <label class="yt-toggle-label">
-            <input type="checkbox" id="yt-thumbnails-toggle" class="yt-checkbox">
-            <span>Replace with neutral frame</span>
-          </label>
-        </div>
-      </div>
-      <div id="yt-info-panel" class="info-panel hidden" style="margin-top: 0.5rem; font-size: 0.8rem;">
-        <p><strong>Rewrite titles</strong> — Fetches the video transcript and rewrites clickbait titles into clear, descriptive ones. Titles that are already informative stay unchanged.</p>
-        <p style="margin-top: 0.4rem;"><strong>Neutral thumbnails</strong> — Replaces clickbait thumbnails with a neutral frame auto-generated by YouTube. No extra API cost.</p>
-        <p style="margin-top: 0.4rem;"><strong>Transcript depth</strong> — Controls how much of each video's transcript is read before rewriting the title. More text gives the AI more context for a better title, but uses more tokens.</p>
-        <ul style="margin: 0.25rem 0 0 1rem; font-size: 0.75rem; color: #6b7280; list-style: disc;">
-          <li><strong>1 — Fast:</strong> 500 chars of transcript. Least tokens.</li>
-          <li><strong>2 — Recommended:</strong> 1000 chars. Good balance of quality and cost.</li>
-          <li><strong>3 — More context:</strong> 2000 chars. Better title quality.</li>
-          <li><strong>4 — Maximum:</strong> 4000 chars. Best precision but ~4x the token cost of default.</li>
-        </ul>
-        <p style="margin-top: 0.25rem; font-size: 0.75rem; color: #6b7280;">Changes apply on the next De-clickbait click.</p>
-        <p style="margin-top: 0.4rem;">The first 15 visible videos are processed immediately. More are processed as you scroll.</p>
-        <p style="margin-top: 0.4rem;">Click the <span style="display:inline-block;width:14px;height:14px;background:#0d9488;border-radius:50%;color:white;font-size:9px;text-align:center;line-height:14px;font-weight:700;">U</span> icon to toggle between original and rewritten version.</p>
-        <p style="margin-top: 0.4rem;">When Gist summaries are enabled, a <span style="display:inline-block;width:14px;height:14px;background:#0d9488;border-radius:50%;color:white;font-size:9px;text-align:center;line-height:14px;font-weight:700;">G</span> icon appears next to titles that weren't rewritten. Click it for an instant summary.</p>
-      </div>
-    </div>
-
-    <!-- Gist Summaries -->
-    <div id="gist-section" class="yt-section" style="margin-bottom: 0.5rem;">
-      <div class="yt-header">
-        <label class="yt-main-toggle">
-          <input type="checkbox" id="gist-toggle" class="yt-checkbox" style="display: none;">
-          <svg id="gist-toggle-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
-          <span>Gist summaries</span>
-        </label>
-        <div style="display: flex; gap: 0.25rem; margin-left: auto;">
-          <button id="btn-gist-settings" class="btn-info-inline has-tooltip tooltip-right"><span class="tooltip">Settings</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-          </button>
-          <button id="btn-gist-info" class="btn-info-inline has-tooltip tooltip-right"><span class="tooltip">How it works</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-          </button>
-        </div>
-      </div>
-      <div id="gist-status" class="toggle-status">Disabled</div>
-      <!-- Gist Settings panel (gear icon) -->
-      <div id="gist-settings-panel" class="hidden" style="margin-top: 0.5rem; padding: 0.5rem; background: #f9fafb; border-radius: 6px; border: 1px solid #e5e7eb;">
-        <div style="margin-bottom: 0.5rem;">
-          <div style="font-size: 0.7rem; color: #374151; font-weight: 600; margin-bottom: 0.35rem;">Single click behavior</div>
-          <div class="click-mode-toggle">
-            <button id="click-mode-summary" class="click-mode-btn active" title="Single click shows summary">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>
-              Summary
-            </button>
-            <button id="click-mode-title" class="click-mode-btn" title="Single click toggles title">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-              Title
-            </button>
-          </div>
-          <div id="click-mode-hint" style="font-size: 10px; color: #9ca3af; margin-top: 3px;">Double click toggles title</div>
-        </div>
-        <div style="border-top: 1px solid #e5e7eb; padding-top: 0.5rem; margin-bottom: 0.5rem;">
-          <label class="yt-toggle-label">
-            <input type="checkbox" id="gist-autoclose-toggle" class="yt-checkbox">
-            <span>Auto-close when scrolling away</span>
-          </label>
-        </div>
-        <div id="gist-depth-container" class="hidden" style="border-top: 1px solid #e5e7eb; padding-top: 0.5rem;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
-            <label for="gist-transcript-slider" style="font-size: 11px; color: #555; margin-bottom: 0;">YouTube summary depth</label>
-            <span id="gist-depth-value" style="font-size: 11px; font-weight: 600; color: #0d9488;">50%</span>
-          </div>
-          <input type="range" id="gist-transcript-slider" class="yt-slider" min="0" max="5" step="1" value="2">
-          <div id="gist-slider-label" style="font-size: 10px; color: #9ca3af; margin-top: 2px;">First half — balanced</div>
-        </div>
-      </div>
-      <div id="gist-info-panel" class="info-panel hidden" style="margin-top: 0.5rem; font-size: 0.8rem;">
-        <p>Click the <span style="display:inline-block;width:14px;height:14px;background:#0d9488;border-radius:50%;color:white;font-size:9px;text-align:center;line-height:14px;font-weight:700;">G</span> or <span style="display:inline-block;width:14px;height:14px;background:#0d9488;border-radius:50%;color:white;font-size:9px;text-align:center;line-height:14px;font-weight:700;">U</span> icon to see an AI-generated summary with a verdict: worth reading, optional, or skip.</p>
-        <p style="margin-top: 0.4rem;"><strong>Cost:</strong> &lt; $0.01 per summary (Anthropic/OpenAI). Free tier with Gemini. YouTube summaries with full transcript use slightly more tokens &mdash; adjust with the depth slider in <strong>&#9881; settings</strong>.</p>
-        <p style="margin-top: 0.4rem;">You can swap the single-click behavior (summary vs. title toggle) in <strong>&#9881; settings</strong>.</p>
-        <p style="margin-top: 0.4rem;">On YouTube, summaries use the video transcript for accurate verdicts.</p>
       </div>
     </div>
 
@@ -316,9 +280,13 @@
           <span class="tooltip" id="share-tooltip">Share</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0d9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
         </button>
-        <a id="btn-beer" href="https://www.paypal.com/paypalme/unbaitlink" target="_blank" class="footer-icon">
+        <a id="btn-beer" href="https://www.paypal.com/paypalme/unbaitlink" target="_blank" class="footer-icon non-ios-only">
           <span class="tooltip">Buy me a beer</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0d9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 11h1a3 3 0 0 1 0 6h-1"/><path d="M9 12v6"/><path d="M13 12v6"/><path d="M14 7.5c-1 0-1.44.5-3 .5s-2-.5-3-.5-1.72.5-2.5.5a2.5 2.5 0 0 1 0-5c.78 0 1.57.5 2.5.5S9.44 2 11 2s2 1.5 3 1.5 1.72-.5 2.5-.5a2.5 2.5 0 0 1 0 5c-.78 0-1.5-.5-2.5-.5Z"/><path d="M5 8v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8"/></svg>
+        </a>
+        <a id="btn-globe" href="https://unbait.link" target="_blank" class="footer-icon ios-only">
+          <span class="tooltip">Visit website</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0d9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
         </a>
       </div>
     </div>
@@ -327,6 +295,14 @@
       <h3>Why this plugin exists</h3>
       <p>Many news sites use vague, curiosity-driven headlines that hide what an article is actually about. You end up clicking articles that don't interest you and missing ones that do. Unbait reads the article and rewrites the headline so you can tell at a glance whether it's worth your time.</p>
       <p style="margin-top: 0.4rem;">With Gist summaries, you can also get a quick AI-generated verdict on any article or video &mdash; helping you decide in seconds whether it's worth your time.</p>
+
+      <div class="info-costs">
+        <h3>Modes</h3>
+        <p><strong>Full</strong> — Unbait rewrites clickbait titles AND lets you click the U or G icon for an AI summary.</p>
+        <p><strong>Gist</strong> — No title rewrites. Just a small <span style="display:inline-block;width:14px;height:14px;background:#0d9488;border-radius:50%;color:white;font-size:9px;text-align:center;line-height:14px;font-weight:700;">G</span> icon next to headlines. Click it for a summary on demand.</p>
+        <p><strong>Off</strong> — Unbait does nothing on this site unless you click the popup button.</p>
+        <p style="margin-top: 0.4rem;"><strong>Apply Gist to all other sites</strong> — When enabled, G-icons appear automatically on every site that doesn't have its own setting. Lightweight: no API calls until you click a G.</p>
+      </div>
 
       <div class="info-costs">
         <h3>Good to know</h3>
@@ -360,7 +336,7 @@
         </p>
       </div>
 
-      <div style="text-align: center; font-size: 0.7rem; color: #9ca3af; padding: 0.5rem 0 0;">Version 1.3.1</div>
+      <div style="text-align: center; font-size: 0.7rem; color: #9ca3af; padding: 0.5rem 0 0;">Version 1.4.2</div>
 
       <div class="info-costs" style="text-align: center; padding-top: 0.25rem;">
         <div style="display: flex; justify-content: center; margin-bottom: 0.5rem;">
@@ -378,7 +354,7 @@
 
       <hr style="margin: 0.75rem 0; border: none; border-top: 1px solid #e5e7eb;">
 
-      <div class="info-costs" style="text-align: center; padding-top: 0.5rem;">
+      <div class="info-costs non-ios-only" style="text-align: center; padding-top: 0.5rem;">
         <div style="display: flex; justify-content: center; margin-bottom: 0.5rem;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0d9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 11h1a3 3 0 0 1 0 6h-1"/><path d="M9 12v6"/><path d="M13 12v6"/><path d="M14 7.5c-1 0-1.44.5-3 .5s-2-.5-3-.5-1.72.5-2.5.5a2.5 2.5 0 0 1 0-5c.78 0 1.57.5 2.5.5S9.44 2 11 2s2 1.5 3 1.5 1.72-.5 2.5-.5a2.5 2.5 0 0 1 0 5c-.78 0-1.5-.5-2.5-.5Z"/><path d="M5 8v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8"/></svg>
         </div>
@@ -386,6 +362,16 @@
         <div style="display: flex; gap: 0.5rem; justify-content: center; margin-top: 0.5rem;">
           <a href="https://github.com/sponsors/jorgvreeswijk" target="_blank" class="donate-btn">GitHub Sponsors</a>
           <a href="https://www.paypal.com/paypalme/unbaitlink" target="_blank" class="donate-btn">PayPal</a>
+        </div>
+      </div>
+
+      <div class="info-costs ios-only" style="text-align: center; padding-top: 0.5rem;">
+        <div style="display: flex; justify-content: center; margin-bottom: 0.5rem;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0d9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 11h1a3 3 0 0 1 0 6h-1"/><path d="M9 12v6"/><path d="M13 12v6"/><path d="M14 7.5c-1 0-1.44.5-3 .5s-2-.5-3-.5-1.72.5-2.5.5a2.5 2.5 0 0 1 0-5c.78 0 1.57.5 2.5.5S9.44 2 11 2s2 1.5 3 1.5 1.72-.5 2.5-.5a2.5 2.5 0 0 1 0 5c-.78 0-1.5-.5-2.5-.5Z"/><path d="M5 8v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8"/></svg>
+        </div>
+        <p>Unbait is free and open source. Visit the website for source code, project info, and ways to support development.</p>
+        <div style="display: flex; gap: 0.5rem; justify-content: center; margin-top: 0.5rem;">
+          <a href="https://unbait.link" target="_blank" class="donate-btn">Visit Website</a>
         </div>
       </div>
     </div>

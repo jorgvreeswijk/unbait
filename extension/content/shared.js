@@ -7,9 +7,11 @@ window.Unbait = (function () {
 
   // ---------------------------------------------------------------------------
   // Gist state (private)
+  // Gist is always on when shared.js loads — sites with mode "full" get
+  // titles + gist; sites with mode "gist" use the lighter gist-only.js path.
   // ---------------------------------------------------------------------------
 
-  let _gistEnabled = true;
+  const _gistEnabled = true;
   let _gistClickMode = "summary";
   let _gistAutoClose = true;
   let _gistActiveOverlay = null;
@@ -28,15 +30,13 @@ window.Unbait = (function () {
   // Gist settings init
   // ---------------------------------------------------------------------------
 
-  chrome.storage.local.get(["gistEnabled", "gistClickMode", "gistAutoClose"], (data) => {
-    _gistEnabled = data.gistEnabled !== false;
+  chrome.storage.local.get(["gistClickMode", "gistAutoClose"], (data) => {
     _gistClickMode = data.gistClickMode || "summary";
     _gistAutoClose = data.gistAutoClose !== false;
   });
 
   // Live-update settings when changed from popup
   chrome.storage.onChanged.addListener((changes) => {
-    if (changes.gistEnabled) _gistEnabled = changes.gistEnabled.newValue !== false;
     if (changes.gistClickMode) _gistClickMode = changes.gistClickMode.newValue || "summary";
     if (changes.gistAutoClose) _gistAutoClose = !!changes.gistAutoClose.newValue;
   });

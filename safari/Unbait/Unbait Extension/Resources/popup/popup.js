@@ -1,3 +1,9 @@
+// iOS detection: hide third-party donation links on iOS to comply with
+// App Store Guideline 3.1.1 (donations must use IAP or be removed).
+if (/iP(hone|ad|od)/i.test(navigator.userAgent)) {
+  document.body.classList.add("is-ios");
+}
+
 const apiKeyInput = document.getElementById("api-key");
 const btnToggleKey = document.getElementById("btn-toggle-key");
 const btnSaveKey = document.getElementById("btn-save-key");
@@ -16,39 +22,99 @@ const PROVIDER_LABELS = {
   gemini: "Google (Gemini)",
 };
 
-// Always On elements
-const btnToggleSite = document.getElementById("btn-toggle-site");
-const toggleSiteText = document.getElementById("toggle-site-text");
+const PROVIDER_PLACEHOLDERS = {
+  anthropic: "sk-ant-...",
+  openai: "sk-...",
+  gemini: "AIza... or AQ...",
+};
+
+const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
+
+// Always On / mode elements
+const siteModeToggle = document.getElementById("site-mode-toggle");
+const siteModeBtns = siteModeToggle.querySelectorAll(".site-mode-btn");
+const siteModeHint = document.getElementById("site-mode-hint");
 const currentSiteEl = document.getElementById("current-site");
 const btnManageSites = document.getElementById("btn-manage-sites");
 const sitesPanel = document.getElementById("sites-panel");
 const sitesList = document.getElementById("sites-list");
 const addSiteInput = document.getElementById("add-site-input");
 const btnAddSite = document.getElementById("btn-add-site");
+const alwaysGistToggle = document.getElementById("always-gist-toggle");
+const excludedSection = document.getElementById("excluded-section");
+const excludedList = document.getElementById("excluded-list");
+const addExcludedInput = document.getElementById("add-excluded-input");
+const btnAddExcluded = document.getElementById("btn-add-excluded");
 
 let _currentHostname = null;
 
-const PROVIDER_PLACEHOLDERS = {
-  anthropic: "sk-ant-...",
-  openai: "sk-...",
-  gemini: "AIza...",
-};
+// ---------------------------------------------------------------------------
+// Helpers — site mode + storage
+// ---------------------------------------------------------------------------
+
+async function getAutoSites() {
+  const data = await chrome.storage.local.get("autoSites");
+  return data.autoSites || [];
+}
+
+async function saveAutoSites(sites) {
+  await chrome.storage.local.set({ autoSites: sites });
+}
+
+async function getSiteMode(hostname) {
+  if (!hostname) return "off";
+  const sites = await getAutoSites();
+  const match = sites.find((s) => s.host === hostname || (YT_HOSTS.includes(hostname) && YT_HOSTS.includes(s.host)));
+  return match ? match.mode : "off";
+}
+
+async function getAlwaysGistState() {
+  const data = await chrome.storage.local.get(["alwaysGist", "gistExcludedSites"]);
+  return {
+    enabled: !!data.alwaysGist,
+    excluded: data.gistExcludedSites || [],
+  };
+}
+
+function originsForHostname(hostname) {
+  return [`https://${hostname}/*`, `http://${hostname}/*`];
+}
+
+async function requestSitePermission(hostname) {
+  try {
+    const origins = originsForHostname(hostname);
+    let hasAllUrls = false;
+    try { hasAllUrls = await chrome.permissions.contains({ origins: ["<all_urls>"] }); } catch {}
+    if (!hasAllUrls) origins.push("<all_urls>");
+    return await chrome.permissions.request({ origins });
+  } catch {
+    return true;
+  }
+}
+
+async function removeSitePermission(hostname) {
+  try {
+    return await chrome.permissions.remove({ origins: originsForHostname(hostname) });
+  } catch {
+    return true;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Provider UI
+// ---------------------------------------------------------------------------
 
 function updateProviderUI(provider) {
   apiKeyInput.placeholder = PROVIDER_PLACEHOLDERS[provider] || "Enter API key";
-  // Toggle info panels
   document.getElementById("info-anthropic").classList.toggle("hidden", provider !== "anthropic");
   document.getElementById("info-openai").classList.toggle("hidden", provider !== "openai");
   document.getElementById("info-gemini").classList.toggle("hidden", provider !== "gemini");
 }
 
-// Provider change handler
 providerSelect.addEventListener("change", () => {
   const provider = providerSelect.value;
   updateProviderUI(provider);
   chrome.storage.local.set({ provider });
-
-  // Load key for this provider if we have one
   chrome.storage.local.get(`apiKey_${provider}`, (data) => {
     const key = data[`apiKey_${provider}`] || "";
     apiKeyInput.value = key;
@@ -59,7 +125,7 @@ providerSelect.addEventListener("change", () => {
   });
 });
 
-// Info panel toggle
+// Info / About panel toggles
 const btnInfo = document.getElementById("btn-info");
 const infoPanel = document.getElementById("info-panel");
 btnInfo.addEventListener("click", () => {
@@ -67,13 +133,11 @@ btnInfo.addEventListener("click", () => {
   btnInfo.classList.toggle("active", !isHidden);
 });
 
-// About panel toggle
 const btnAbout = document.getElementById("btn-about");
 const aboutPanel = document.getElementById("about-panel");
 btnAbout.addEventListener("click", () => {
   const isHidden = aboutPanel.classList.toggle("hidden");
   btnAbout.textContent = isHidden ? "About Unbait" : "Close";
-  // Safari needs a nudge to recalculate popup size when content changes
   if (!isHidden) {
     requestAnimationFrame(() => {
       document.body.style.height = document.body.scrollHeight + "px";
@@ -83,14 +147,13 @@ btnAbout.addEventListener("click", () => {
   }
 });
 
-// Footer icon hover (CSP-safe, no inline handlers)
+// Footer buttons
 const btnBeer = document.getElementById("btn-beer");
 if (btnBeer) {
   btnBeer.addEventListener("mouseenter", () => { btnBeer.style.opacity = "0.75"; });
   btnBeer.addEventListener("mouseleave", () => { btnBeer.style.opacity = "0.35"; });
 }
 
-// Share button — copy message to clipboard
 const btnShare = document.getElementById("btn-share");
 const shareTooltip = document.getElementById("share-tooltip");
 if (btnShare) {
@@ -119,182 +182,31 @@ if (btnShare) {
   });
 }
 
-// Load YouTube settings on popup open
-const SLIDER_LABELS = {
-  1: 'Fast, minimal context',
-  2: { text: 'Recommended balance', bold: true },
-  3: { text: 'More context, slower' },
-  4: { text: 'Maximum precision \u26a0\ufe0f higher API cost', warning: true }
-};
-
-function updateSliderLabel(value) {
-  const label = document.getElementById('yt-slider-label');
-  const config = SLIDER_LABELS[value];
-  if (!config) { label.textContent = ''; return; }
-  label.textContent = typeof config === 'string' ? config : config.text;
-  label.className = 'yt-slider-label-text';
-  if (config.bold) label.style.fontWeight = '600';
-  else label.style.fontWeight = '';
-  if (config.warning) label.classList.add('yt-slider-warning');
-}
-
-function updateYTToggleState() {
-  const titlesOn = document.getElementById('yt-titles-toggle').checked;
-  const sliderContainer = document.getElementById('yt-slider-container');
-  const icon = document.getElementById('yt-toggle-icon');
-  const label = document.querySelector('#youtube-section .yt-main-toggle span');
-  const status = document.getElementById('yt-status');
-  if (sliderContainer) {
-    sliderContainer.classList.toggle('hidden', !titlesOn);
-  }
-  if (icon) {
-    icon.setAttribute('stroke', titlesOn ? '#0d9488' : '#9ca3af');
-  }
-  if (label) {
-    label.style.color = titlesOn ? '#374151' : '#9ca3af';
-  }
-  if (status) {
-    status.textContent = titlesOn ? 'Enabled' : 'Disabled';
-    status.classList.toggle('enabled', titlesOn);
-  }
-}
-
-chrome.storage.local.get(['youtubeEnabled', 'youtubeThumbnails', 'ytTranscriptDepth'], (data) => {
-  document.getElementById('yt-titles-toggle').checked = !!data.youtubeEnabled;
-  document.getElementById('yt-thumbnails-toggle').checked = !!data.youtubeThumbnails;
-  const slider = document.getElementById('yt-transcript-slider');
-  if (slider) {
-    slider.value = data.ytTranscriptDepth || 2;
-    updateSliderLabel(slider.value);
-  }
-  updateYTToggleState();
-});
-
-// YouTube transcript slider
-document.getElementById('yt-transcript-slider')?.addEventListener('input', (e) => {
-  const val = parseInt(e.target.value, 10);
-  updateSliderLabel(val);
-  chrome.storage.local.set({ ytTranscriptDepth: val });
-});
-
-// YouTube toggle handlers
-document.getElementById('yt-titles-toggle').addEventListener('change', async (e) => {
-  chrome.storage.local.set({ youtubeEnabled: e.target.checked });
-  updateYTToggleState();
-  if (typeof updateGistDepthVisibility === "function") updateGistDepthVisibility();
-
-  // Sync with autoSites list for consistency
-  const sites = await getAutoSites();
-  const ytHost = "www.youtube.com";
-  if (e.target.checked && !sites.includes(ytHost)) {
-    sites.push(ytHost);
-    await saveAutoSites(sites);
-    // Update Always On button if we're on YouTube
-    if (_currentHostname && ["www.youtube.com", "youtube.com", "m.youtube.com"].includes(_currentHostname)) {
-      toggleSiteText.textContent = "Active on this site";
-      btnToggleSite.classList.add("active");
-    }
-    setTimeout(() => renderSitesList(), 100);
-  } else if (!e.target.checked) {
-    document.getElementById('yt-thumbnails-toggle').checked = false;
-    chrome.storage.local.set({ youtubeThumbnails: false });
-    const idx = sites.indexOf(ytHost);
-    if (idx >= 0) {
-      sites.splice(idx, 1);
-      await saveAutoSites(sites);
-      if (_currentHostname && ["www.youtube.com", "youtube.com", "m.youtube.com"].includes(_currentHostname)) {
-        toggleSiteText.textContent = "Enable for this site";
-        btnToggleSite.classList.remove("active");
-      }
-      setTimeout(() => renderSitesList(), 100);
-    }
-  }
-});
-
-document.getElementById('yt-thumbnails-toggle').addEventListener('change', (e) => {
-  chrome.storage.local.set({ youtubeThumbnails: e.target.checked });
-  if (e.target.checked) {
-    document.getElementById('yt-titles-toggle').checked = true;
-    chrome.storage.local.set({ youtubeEnabled: true });
-  }
-});
-
-// YouTube settings panel toggle (gear icon)
-document.getElementById('btn-yt-settings').addEventListener('click', () => {
-  document.getElementById('yt-settings-panel').classList.toggle('hidden');
-});
-
-// YouTube info panel toggle
-document.getElementById('btn-yt-info').addEventListener('click', () => {
-  document.getElementById('yt-info-panel').classList.toggle('hidden');
-});
-
-// --- Gist summaries toggle ---
-
-const gistToggle = document.getElementById("gist-toggle");
-const gistToggleIcon = document.getElementById("gist-toggle-icon");
-
-function updateGistToggleState() {
-  const on = gistToggle.checked;
-  gistToggleIcon.setAttribute("stroke", on ? "#0d9488" : "#9ca3af");
-  const label = gistToggle.closest(".yt-main-toggle")?.querySelector("span");
-  if (label) label.style.color = on ? "#374151" : "#9ca3af";
-  const status = document.getElementById("gist-status");
-  if (status) {
-    status.textContent = on ? "Enabled" : "Disabled";
-    status.classList.toggle("enabled", on);
-  }
-  updateGistDepthVisibility();
-}
-
-gistToggle.addEventListener("change", async () => {
-  if (gistToggle.checked) {
-    // Gist needs to fetch arbitrary article URLs to read context. Without
-    // <all_urls> permission the SW fetches are CORS-blocked and summaries
-    // fall back to title-only. Ask once; if declined, leave Gist on but
-    // show the banner so user can retry.
-    await requestGistFetchPermission();
-  }
-  chrome.storage.local.set({ gistEnabled: gistToggle.checked });
-  updateGistToggleState();
-  refreshGistPermissionBanner();
-});
-
-async function requestGistFetchPermission() {
-  try {
-    const has = await chrome.permissions.contains({ origins: ["<all_urls>"] });
-    if (has) return true;
-    return await chrome.permissions.request({ origins: ["<all_urls>"] });
-  } catch {
-    // Safari may not support optional <all_urls> grants — assume allowed.
-    return true;
-  }
-}
-
-// Gist settings panel toggle (gear icon)
-document.getElementById("btn-gist-settings").addEventListener("click", () => {
-  document.getElementById("gist-settings-panel").classList.toggle("hidden");
-});
-
-// Gist info panel toggle
-document.getElementById("btn-gist-info").addEventListener("click", () => {
-  document.getElementById("gist-info-panel").classList.toggle("hidden");
-});
-
-// --- Statistics panel (chart icon) ---
+// ---------------------------------------------------------------------------
+// Stats + general settings panels (header icons)
+// ---------------------------------------------------------------------------
 
 const btnStatsPanel = document.getElementById("btn-stats");
 const statsPanel = document.getElementById("stats-panel");
+const btnSettings = document.getElementById("btn-settings");
+const settingsPanel = document.getElementById("settings-panel");
+
 btnStatsPanel.addEventListener("click", () => {
   const wasHidden = statsPanel.classList.toggle("hidden");
   btnStatsPanel.classList.toggle("active", !wasHidden);
-  // Close settings if open
   if (!wasHidden) return;
   settingsPanel.classList.add("hidden");
   btnSettings.classList.remove("active");
 });
 
-// Load lifetime stats
+btnSettings.addEventListener("click", () => {
+  const wasHidden = settingsPanel.classList.toggle("hidden");
+  btnSettings.classList.toggle("active", !wasHidden);
+  if (!wasHidden) return;
+  statsPanel.classList.add("hidden");
+  btnStatsPanel.classList.remove("active");
+});
+
 chrome.storage.local.get("unbait_stats", (data) => {
   const stats = data.unbait_stats || {};
   document.getElementById("lifetime-unbaited").textContent = (stats.totalUnbaited || 0).toLocaleString();
@@ -305,26 +217,15 @@ chrome.storage.local.get("unbait_stats", (data) => {
   }
 });
 
-// --- General settings (header gear icon) ---
+// ---------------------------------------------------------------------------
+// Settings panel: language, gist click mode, autoclose, YouTube
+// ---------------------------------------------------------------------------
 
-const btnSettings = document.getElementById("btn-settings");
-const settingsPanel = document.getElementById("settings-panel");
-btnSettings.addEventListener("click", () => {
-  const wasHidden = settingsPanel.classList.toggle("hidden");
-  btnSettings.classList.toggle("active", !wasHidden);
-  // Close stats if open
-  if (!wasHidden) return;
-  statsPanel.classList.add("hidden");
-  btnStatsPanel.classList.remove("active");
-});
-
-// Language selector
 const langSelect = document.getElementById("summary-language");
 langSelect.addEventListener("change", () => {
   chrome.storage.local.set({ summaryLanguage: langSelect.value });
 });
 
-// --- Gist click mode toggle ---
 const clickModeSummary = document.getElementById("click-mode-summary");
 const clickModeTitle = document.getElementById("click-mode-title");
 const clickModeHint = document.getElementById("click-mode-hint");
@@ -346,15 +247,59 @@ clickModeTitle.addEventListener("click", () => {
   updateClickModeUI("title");
 });
 
-// Gist transcript depth slider (percentage-based, 6 steps)
+const gistAutocloseToggle = document.getElementById("gist-autoclose-toggle");
+gistAutocloseToggle.addEventListener("change", () => {
+  chrome.storage.local.set({ gistAutoClose: gistAutocloseToggle.checked });
+});
+
+// YouTube subsection — depth slider + thumbnails + gist depth
+const SLIDER_LABELS = {
+  1: "Fast, minimal context",
+  2: "Recommended balance",
+  3: "More context, slower",
+  4: "Maximum precision — higher API cost",
+};
+
+function updateYTSliderLabel(value) {
+  const label = document.getElementById("yt-slider-label");
+  if (!label) return;
+  label.textContent = SLIDER_LABELS[value] || "";
+}
+
+document.getElementById("yt-transcript-slider").addEventListener("input", (e) => {
+  const val = parseInt(e.target.value, 10);
+  updateYTSliderLabel(val);
+  chrome.storage.local.set({ ytTranscriptDepth: val });
+});
+
+document.getElementById("yt-thumbnails-toggle").addEventListener("change", (e) => {
+  chrome.storage.local.set({ youtubeThumbnails: e.target.checked });
+});
+
+// YouTube in-video sponsor skip
+function updateSponsorUI(enabled) {
+  document.getElementById("yt-sponsor-auto-row").style.display = enabled ? "" : "none";
+  document.getElementById("yt-sponsor-hint").style.display = enabled ? "" : "none";
+}
+
+document.getElementById("yt-sponsor-toggle").addEventListener("change", (e) => {
+  chrome.storage.local.set({ ytSponsorSkip: e.target.checked });
+  updateSponsorUI(e.target.checked);
+});
+
+document.getElementById("yt-sponsor-auto-toggle").addEventListener("change", (e) => {
+  chrome.storage.local.set({ ytSponsorAuto: e.target.checked });
+});
+
+// YouTube gist depth slider
 const GIST_DEPTH_STEPS = [15, 30, 50, 70, 85, 100];
 const GIST_DEPTH_LABELS = [
-  "First 15% \u2014 very fast",
-  "First 30% \u2014 quick scan",
-  "First half \u2014 balanced",
-  "First 70% \u2014 thorough",
-  "First 85% \u2014 near complete",
-  "Full transcript \u2014 most accurate",
+  "First 15% — very fast",
+  "First 30% — quick scan",
+  "First half — balanced",
+  "First 70% — thorough",
+  "First 85% — near complete",
+  "Full transcript — most accurate",
 ];
 
 const gistSlider = document.getElementById("gist-transcript-slider");
@@ -372,60 +317,328 @@ gistSlider.addEventListener("input", () => {
   chrome.storage.local.set({ ytGistDepth: GIST_DEPTH_STEPS[idx] });
 });
 
-// Show gist depth slider only when both YouTube AND gist are enabled
-function updateGistDepthVisibility() {
-  const ytOn = document.getElementById("yt-titles-toggle").checked;
-  const gistOn = gistToggle.checked;
-  const container = document.getElementById("gist-depth-container");
-  if (container) container.classList.toggle("hidden", !(ytOn && gistOn));
+async function refreshYouTubeSettingsVisibility() {
+  const sites = await getAutoSites();
+  const ytEnabled = sites.some((s) => YT_HOSTS.includes(s.host) && s.mode !== "off");
+  document.getElementById("youtube-settings").classList.toggle("hidden", !ytEnabled);
 }
 
-// Auto-close on scroll toggle
-const gistAutocloseToggle = document.getElementById("gist-autoclose-toggle");
-gistAutocloseToggle.addEventListener("change", () => {
-  chrome.storage.local.set({ gistAutoClose: gistAutocloseToggle.checked });
-});
-
-// Load gist settings on popup open
-chrome.storage.local.get(["gistEnabled", "summaryLanguage", "ytGistDepth", "gistClickMode", "gistAutoClose"], async (data) => {
-  gistToggle.checked = data.gistEnabled !== false;
-  updateGistToggleState();
+// Load settings panel state
+chrome.storage.local.get([
+  "summaryLanguage", "gistClickMode", "gistAutoClose",
+  "ytTranscriptDepth", "youtubeThumbnails", "ytGistDepth",
+  "ytSponsorSkip", "ytSponsorAuto",
+], (data) => {
+  langSelect.value = data.summaryLanguage || "auto";
   updateClickModeUI(data.gistClickMode || "summary");
   gistAutocloseToggle.checked = data.gistAutoClose !== false;
-  langSelect.value = data.summaryLanguage || "auto";
-  const savedDepth = data.ytGistDepth || 50;
-  const idx = GIST_DEPTH_STEPS.indexOf(savedDepth);
+
+  const ytDepth = data.ytTranscriptDepth || 2;
+  document.getElementById("yt-transcript-slider").value = ytDepth;
+  updateYTSliderLabel(ytDepth);
+  document.getElementById("yt-thumbnails-toggle").checked = !!data.youtubeThumbnails;
+
+  const sponsorOn = data.ytSponsorSkip !== false; // default on
+  document.getElementById("yt-sponsor-toggle").checked = sponsorOn;
+  document.getElementById("yt-sponsor-auto-toggle").checked = !!data.ytSponsorAuto;
+  updateSponsorUI(sponsorOn);
+
+  const savedGistDepth = data.ytGistDepth || 100;
+  const idx = GIST_DEPTH_STEPS.indexOf(savedGistDepth);
   gistSlider.value = idx >= 0 ? idx : 2;
   updateGistSlider(parseInt(gistSlider.value, 10));
-  updateGistDepthVisibility();
 
-  await refreshGistPermissionBanner();
+  refreshYouTubeSettingsVisibility();
 });
 
-async function refreshGistPermissionBanner() {
-  const banner = document.getElementById("gist-permission-banner");
-  if (!banner) return;
-  if (!gistToggle.checked) { banner.classList.add("hidden"); return; }
-  try {
-    const has = await chrome.permissions.contains({ origins: ["<all_urls>"] });
-    banner.classList.toggle("hidden", has);
-  } catch {
-    // Safari: optional <all_urls> not supported — hide banner.
-    banner.classList.add("hidden");
+// ---------------------------------------------------------------------------
+// Site mode toggle (Off / Gist / Full) for current site
+// ---------------------------------------------------------------------------
+
+const SITE_MODE_HINTS = {
+  off: "Unbait stays off here. Use the button above for one-time scans.",
+  gist: "G icons appear automatically. Click one for an AI summary.",
+  full: "Titles auto-rewrite when you visit this site.",
+};
+
+function paintSiteMode(mode) {
+  for (const btn of siteModeBtns) {
+    btn.classList.toggle("active", btn.dataset.mode === mode);
+  }
+  siteModeHint.textContent = SITE_MODE_HINTS[mode] || "";
+}
+
+async function reloadCurrentTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id) {
+    // Reload so the gist-only script state is cleared and the onUpdated
+    // listener in the service worker re-injects with the new mode (Full).
+    chrome.tabs.reload(tab.id);
   }
 }
 
-document.getElementById("btn-grant-gist-permission")?.addEventListener("click", async () => {
-  const granted = await requestGistFetchPermission();
-  if (granted) {
-    document.getElementById("gist-permission-banner")?.classList.add("hidden");
-    updateGistToggleState();
+async function setCurrentSiteMode(mode) {
+  if (!_currentHostname) return;
+  const previous = await getSiteMode(_currentHostname);
+  if (previous === mode) return;
+
+  // Permission: needed when going from "off" to anything else.
+  if (previous === "off" && mode !== "off") {
+    // Save the intent BEFORE the dialog (popup may close mid-prompt).
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    chrome.runtime.sendMessage({
+      action: "enable-site",
+      hostname: _currentHostname,
+      mode,
+      tabId: tab?.id,
+    }).catch(() => {});
+    paintSiteMode(mode);
+
+    const granted = await requestSitePermission(_currentHostname);
+    if (!granted) {
+      chrome.runtime.sendMessage({ action: "disable-site", hostname: _currentHostname }).catch(() => {});
+      paintSiteMode("off");
+    }
+    return;
+  }
+
+  // Off transition — remove site + permission.
+  if (mode === "off") {
+    chrome.runtime.sendMessage({ action: "disable-site", hostname: _currentHostname }).catch(() => {});
+    await removeSitePermission(_currentHostname);
+    paintSiteMode("off");
+    return;
+  }
+
+  // Switch between gist <-> full — no new permission needed.
+  chrome.runtime.sendMessage({ action: "set-site-mode", hostname: _currentHostname, mode }).catch(() => {});
+  paintSiteMode(mode);
+  // Gist → Full: re-scan the current page so titles get rewritten now,
+  // not after the next page load.
+  if (previous === "gist" && mode === "full") {
+    reloadCurrentTab();
+  }
+}
+
+siteModeBtns.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const mode = btn.dataset.mode;
+    setCurrentSiteMode(mode);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Manage sites list — per-site mode picker + remove
+// ---------------------------------------------------------------------------
+
+btnManageSites.addEventListener("click", () => {
+  const isHidden = sitesPanel.classList.toggle("hidden");
+  btnManageSites.textContent = isHidden ? "Manage sites ›" : "Manage sites ‹";
+  if (!isHidden) {
+    renderSitesList();
+    refreshAlwaysGistUI();
   }
 });
 
-// Load saved provider + API key on popup open
+function buildModePicker(currentMode, onChange) {
+  const wrap = document.createElement("div");
+  wrap.className = "site-item-mode";
+  for (const m of ["gist", "full"]) {
+    const btn = document.createElement("button");
+    btn.className = "site-item-mode-btn" + (currentMode === m ? " active" : "");
+    btn.textContent = m === "gist" ? "Gist" : "Full";
+    btn.addEventListener("click", () => onChange(m));
+    wrap.appendChild(btn);
+  }
+  return wrap;
+}
+
+async function renderSitesList() {
+  const sites = await getAutoSites();
+
+  while (sitesList.firstChild) sitesList.removeChild(sitesList.firstChild);
+
+  if (sites.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "sites-empty";
+    empty.textContent = "No sites configured yet";
+    sitesList.appendChild(empty);
+    return;
+  }
+
+  for (const site of sites) {
+    const item = document.createElement("div");
+    item.className = "site-item";
+
+    const name = document.createElement("a");
+    name.className = "site-name";
+    name.textContent = site.host;
+    name.href = `https://${site.host}`;
+    name.target = "_blank";
+    name.rel = "noopener";
+    name.title = `Open ${site.host}`;
+
+    const modePicker = buildModePicker(site.mode, async (newMode) => {
+      const previousMode = site.mode;
+      chrome.runtime.sendMessage({ action: "set-site-mode", hostname: site.host, mode: newMode }).catch(() => {});
+      if (site.host === _currentHostname) {
+        paintSiteMode(newMode);
+        if (previousMode === "gist" && newMode === "full") {
+          reloadCurrentTab();
+        }
+      }
+    });
+
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "btn-remove";
+    removeBtn.textContent = "×";
+    removeBtn.title = "Remove";
+    removeBtn.addEventListener("click", async () => {
+      chrome.runtime.sendMessage({ action: "disable-site", hostname: site.host }).catch(() => {});
+      await removeSitePermission(site.host);
+      if (site.host === _currentHostname) paintSiteMode("off");
+    });
+
+    item.appendChild(name);
+    item.appendChild(modePicker);
+    item.appendChild(removeBtn);
+    sitesList.appendChild(item);
+  }
+}
+
+async function addSiteManually() {
+  let input = addSiteInput.value.trim();
+  if (!input) return;
+
+  try {
+    if (input.includes("://")) input = new URL(input).hostname;
+    else if (input.includes("/")) input = new URL("https://" + input).hostname;
+  } catch { /* keep as-is */ }
+
+  const sites = await getAutoSites();
+  if (!sites.some((s) => s.host === input)) {
+    const granted = await requestSitePermission(input);
+    if (!granted) return;
+    sites.push({ host: input, mode: "full" });
+    await saveAutoSites(sites);
+  }
+
+  addSiteInput.value = "";
+  if (input === _currentHostname) paintSiteMode("full");
+}
+
+// React to any storage changes — the service worker writes asynchronously, so
+// the UI must update when the write lands rather than after the message dispatch.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.autoSites) {
+    refreshYouTubeSettingsVisibility();
+    if (!sitesPanel.classList.contains("hidden")) renderSitesList();
+    if (_currentHostname) {
+      getSiteMode(_currentHostname).then((mode) => {
+        paintSiteMode(mode);
+        updateDeclickbaitButton();
+      });
+    }
+  }
+  if (changes.alwaysGist || changes.gistExcludedSites) {
+    if (!sitesPanel.classList.contains("hidden")) refreshAlwaysGistUI();
+  }
+});
+
+btnAddSite.addEventListener("click", addSiteManually);
+addSiteInput.addEventListener("keydown", (e) => { if (e.key === "Enter") addSiteManually(); });
+
+// ---------------------------------------------------------------------------
+// Always Gist toggle + excluded sites
+// ---------------------------------------------------------------------------
+
+async function refreshAlwaysGistUI() {
+  const { enabled, excluded } = await getAlwaysGistState();
+  alwaysGistToggle.checked = enabled;
+  excludedSection.classList.toggle("hidden", !enabled);
+  renderExcludedList(excluded);
+}
+
+function renderExcludedList(excluded) {
+  while (excludedList.firstChild) excludedList.removeChild(excludedList.firstChild);
+  if (!excluded.length) {
+    const empty = document.createElement("div");
+    empty.className = "sites-empty";
+    empty.textContent = "No excluded sites";
+    excludedList.appendChild(empty);
+    return;
+  }
+  for (const host of excluded) {
+    const item = document.createElement("div");
+    item.className = "site-item";
+    const name = document.createElement("span");
+    name.className = "site-name";
+    name.textContent = host;
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "btn-remove";
+    removeBtn.textContent = "×";
+    removeBtn.title = "Remove";
+    removeBtn.addEventListener("click", async () => {
+      const data = await chrome.storage.local.get("gistExcludedSites");
+      const filtered = (data.gistExcludedSites || []).filter((h) => h !== host);
+      await chrome.storage.local.set({ gistExcludedSites: filtered });
+      refreshAlwaysGistUI();
+    });
+    item.appendChild(name);
+    item.appendChild(removeBtn);
+    excludedList.appendChild(item);
+  }
+}
+
+alwaysGistToggle.addEventListener("change", async () => {
+  const enabled = alwaysGistToggle.checked;
+  if (enabled) {
+    // <all_urls> is needed for both content script registration and fetching
+    // article bodies for summaries.
+    try {
+      const has = await chrome.permissions.contains({ origins: ["<all_urls>"] });
+      if (!has) {
+        const granted = await chrome.permissions.request({ origins: ["<all_urls>"] });
+        if (!granted) {
+          alwaysGistToggle.checked = false;
+          return;
+        }
+      }
+    } catch {
+      // Safari / no support for optional <all_urls> — proceed.
+    }
+  }
+  await chrome.storage.local.set({ alwaysGist: enabled });
+  refreshAlwaysGistUI();
+});
+
+async function addExcludedManually() {
+  let input = addExcludedInput.value.trim();
+  if (!input) return;
+  try {
+    if (input.includes("://")) input = new URL(input).hostname;
+    else if (input.includes("/")) input = new URL("https://" + input).hostname;
+  } catch { /* keep as-is */ }
+  const data = await chrome.storage.local.get("gistExcludedSites");
+  const list = data.gistExcludedSites || [];
+  if (!list.includes(input)) {
+    list.push(input);
+    await chrome.storage.local.set({ gistExcludedSites: list });
+  }
+  addExcludedInput.value = "";
+  refreshAlwaysGistUI();
+}
+
+btnAddExcluded.addEventListener("click", addExcludedManually);
+addExcludedInput.addEventListener("keydown", (e) => { if (e.key === "Enter") addExcludedManually(); });
+
+// ---------------------------------------------------------------------------
+// Provider + API key (load + save flow)
+// ---------------------------------------------------------------------------
+
 chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini", "apiKey"], (data) => {
-  // Migrate old single apiKey to anthropic-specific key and clean up
+  // Migrate old single apiKey to anthropic-specific key
   if (data.apiKey && !data.apiKey_anthropic) {
     chrome.storage.local.set({ apiKey_anthropic: data.apiKey });
     chrome.storage.local.remove("apiKey");
@@ -447,7 +660,6 @@ chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiK
     keyStatus.className = "status-msg success";
     showCompactKeyUI();
   } else {
-    // No key yet — show welcome message
     document.getElementById("welcome-msg").style.display = "block";
   }
 });
@@ -469,35 +681,108 @@ function showFullKeyUI() {
   document.getElementById("key-saved-compact").style.display = "none";
 }
 
-// "Edit" link to show key input again
 document.getElementById("btn-edit-key").addEventListener("click", (e) => {
   e.preventDefault();
   showFullKeyUI();
 });
 
-// Pill click to show provider dropdown
-providerPill.addEventListener("click", () => {
-  showFullKeyUI();
+providerPill.addEventListener("click", () => { showFullKeyUI(); });
+
+btnToggleKey.addEventListener("click", () => {
+  const isPassword = apiKeyInput.type === "password";
+  apiKeyInput.type = isPassword ? "text" : "password";
+  document.getElementById("icon-eye").classList.toggle("hidden", isPassword);
+  document.getElementById("icon-eye-off").classList.toggle("hidden", !isPassword);
 });
 
-// Load current tab hostname + auto-sites state + existing stats
+function validateKeyFormat(key, provider) {
+  switch (provider) {
+    case "anthropic":
+      if (!key.startsWith("sk-ant-")) return "Anthropic keys start with sk-ant-";
+      break;
+    case "openai":
+      if (!key.startsWith("sk-")) return "OpenAI keys start with sk-";
+      break;
+    case "gemini":
+      // Google is migrating from "Standard" keys (AIza...) to "Auth" keys
+      // (AQ...) — accept both so keys created after the mid-2026 transition
+      // aren't rejected.
+      if (!key.startsWith("AIza") && !key.startsWith("AQ")) {
+        return "Gemini keys start with AIza or AQ";
+      }
+      break;
+  }
+  return null;
+}
+
+btnSaveKey.addEventListener("click", () => {
+  const key = apiKeyInput.value.trim();
+  if (!key) {
+    keyStatus.textContent = "Please enter an API key";
+    keyStatus.className = "status-msg error";
+    return;
+  }
+  const provider = providerSelect.value;
+  const formatError = validateKeyFormat(key, provider);
+  if (formatError) {
+    keyStatus.textContent = formatError;
+    keyStatus.className = "status-msg error";
+    return;
+  }
+  chrome.storage.local.set({ [`apiKey_${provider}`]: key, provider }, () => {
+    keyStatus.textContent = "Key saved";
+    keyStatus.className = "status-msg success";
+    btnDeclickbait.disabled = false;
+    btnDeleteKey.style.display = "flex";
+    showCompactKeyUI();
+  });
+});
+
+const btnDeleteKey = document.getElementById("btn-delete-key");
+btnDeleteKey.addEventListener("click", () => {
+  const provider = providerSelect.value;
+  chrome.storage.local.remove(`apiKey_${provider}`, () => {
+    apiKeyInput.value = "";
+    keyStatus.textContent = "Key removed";
+    keyStatus.className = "status-msg";
+    btnDeclickbait.disabled = true;
+    btnDeleteKey.style.display = "none";
+    showFullKeyUI();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Current tab + de-clickbait button (contextual label)
+// ---------------------------------------------------------------------------
+
+async function updateDeclickbaitButton() {
+  if (!_currentHostname) return;
+  const mode = await getSiteMode(_currentHostname);
+  if (mode === "full") {
+    btnDeclickbait.textContent = "Re-scan this page";
+  } else if (mode === "gist") {
+    btnDeclickbait.textContent = "Rewrite titles for this page";
+  } else {
+    btnDeclickbait.textContent = "De-clickbait this page";
+  }
+}
+
 (async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab?.url) {
     try {
       _currentHostname = new URL(tab.url).hostname;
       currentSiteEl.textContent = _currentHostname;
-      btnToggleSite.disabled = false;
-      updateSiteToggle();
+      const mode = await getSiteMode(_currentHostname);
+      paintSiteMode(mode);
+      updateDeclickbaitButton();
     } catch {
       currentSiteEl.textContent = "Cannot detect site";
     }
   }
 
-  // Check if there's an active job or results for this tab
   if (tab?.id) {
     try {
-      // First check service worker for active/completed job status
       const tabStatus = await chrome.runtime.sendMessage({
         action: "get-tab-status",
         tabId: tab.id,
@@ -524,82 +809,16 @@ providerPill.addEventListener("click", () => {
         }
       }
 
-      // Also check content script for stats (e.g. from cached results)
       const stats = await chrome.tabs.sendMessage(tab.id, { action: "get-stats" });
       if (stats && stats.count > 0 && !tabStatus) {
         statsEl.classList.remove("hidden");
         statFound.textContent = stats.found || stats.count;
         statReplaced.textContent = stats.count;
       }
-    } catch {
-      // Content script not injected yet — no stats to show
-    }
+    } catch { /* content script not injected yet */ }
   }
 })();
 
-// Toggle key visibility with icon swap
-btnToggleKey.addEventListener("click", () => {
-  const isPassword = apiKeyInput.type === "password";
-  apiKeyInput.type = isPassword ? "text" : "password";
-  document.getElementById("icon-eye").classList.toggle("hidden", isPassword);
-  document.getElementById("icon-eye-off").classList.toggle("hidden", !isPassword);
-});
-
-// API key format validation per provider
-function validateKeyFormat(key, provider) {
-  switch (provider) {
-    case "anthropic":
-      if (!key.startsWith("sk-ant-")) return "Anthropic keys start with sk-ant-";
-      break;
-    case "openai":
-      if (!key.startsWith("sk-")) return "OpenAI keys start with sk-";
-      break;
-    case "gemini":
-      if (!key.startsWith("AIza")) return "Gemini keys start with AIza";
-      break;
-  }
-  return null;
-}
-
-// Save API key per provider
-btnSaveKey.addEventListener("click", () => {
-  const key = apiKeyInput.value.trim();
-  if (!key) {
-    keyStatus.textContent = "Please enter an API key";
-    keyStatus.className = "status-msg error";
-    return;
-  }
-  const provider = providerSelect.value;
-  const formatError = validateKeyFormat(key, provider);
-  if (formatError) {
-    keyStatus.textContent = formatError;
-    keyStatus.className = "status-msg error";
-    return;
-  }
-  chrome.storage.local.set({ [`apiKey_${provider}`]: key, provider }, () => {
-    keyStatus.textContent = "Key saved";
-    keyStatus.className = "status-msg success";
-    btnDeclickbait.disabled = false;
-    btnDeleteKey.style.display = "flex";
-    showCompactKeyUI();
-  });
-});
-
-// Delete API key for current provider
-const btnDeleteKey = document.getElementById("btn-delete-key");
-btnDeleteKey.addEventListener("click", () => {
-  const provider = providerSelect.value;
-  chrome.storage.local.remove(`apiKey_${provider}`, () => {
-    apiKeyInput.value = "";
-    keyStatus.textContent = "Key removed";
-    keyStatus.className = "status-msg";
-    btnDeclickbait.disabled = true;
-    btnDeleteKey.style.display = "none";
-    showFullKeyUI();
-  });
-});
-
-// De-clickbait button
 btnDeclickbait.addEventListener("click", async () => {
   statusEl.textContent = "Scanning headlines...";
   statusEl.className = "status-msg";
@@ -611,14 +830,13 @@ btnDeclickbait.addEventListener("click", async () => {
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    // Inject content script via scripting API (works with activeTab)
-    const isYouTube = _currentHostname === 'www.youtube.com';
+    const isYouTube = YT_HOSTS.includes(_currentHostname);
     const scriptFile = isYouTube ? "content/youtube.js" : "content/content.js";
+    const extraFiles = isYouTube ? [] : ["content/html-utils.js"];
     try {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        files: ["content/shared.js", scriptFile],
+        files: ["content/shared.js", ...extraFiles, scriptFile],
       });
     } catch (injectErr) {
       console.error("[Unbait] Script injection failed:", injectErr);
@@ -626,7 +844,7 @@ btnDeclickbait.addEventListener("click", async () => {
       statusEl.className = "status-msg error";
       btnDeclickbait.disabled = false;
       btnDeclickbait.classList.remove("processing");
-      btnDeclickbait.textContent = "De-clickbait!";
+      updateDeclickbaitButton();
       return;
     }
     await chrome.scripting.insertCSS({
@@ -634,25 +852,18 @@ btnDeclickbait.addEventListener("click", async () => {
       files: ["content/content.css"],
     });
 
-    // Small delay for YouTube to let the script initialize
     if (isYouTube) await new Promise((r) => setTimeout(r, 100));
 
-    // Send de-clickbait message to content script
-    const action = isYouTube ? 'de-clickbait-youtube' : 'de-clickbait';
-
-    // Fire the request — don't await. Poll for status instead.
+    const action = isYouTube ? "de-clickbait-youtube" : "de-clickbait";
     chrome.tabs.sendMessage(tab.id, { action }).catch(() => {});
 
-    // Poll service worker for live status updates
     const pollInterval = setInterval(async () => {
       try {
         const status = await chrome.runtime.sendMessage({ action: "get-status", tabId: tab.id });
         if (!status) return;
-
         if (status.state === "working") {
           statusEl.textContent = status.text || "Working...";
           statusEl.className = "status-msg";
-          // Show live count if available
           if (status.found) {
             statsEl.classList.remove("hidden");
             statFound.textContent = status.found;
@@ -668,29 +879,25 @@ btnDeclickbait.addEventListener("click", async () => {
           statReplaced.textContent = status.count || 0;
           btnDeclickbait.disabled = false;
           btnDeclickbait.classList.remove("processing");
-          btnDeclickbait.textContent = "De-clickbait!";
+          updateDeclickbaitButton();
         } else if (status.state === "error") {
           clearInterval(pollInterval);
           statusEl.textContent = status.text || "Error";
           statusEl.className = "status-msg error";
           btnDeclickbait.disabled = false;
           btnDeclickbait.classList.remove("processing");
-          btnDeclickbait.textContent = "De-clickbait!";
+          updateDeclickbaitButton();
         }
-      } catch {
-        // Service worker may be inactive, ignore
-      }
+      } catch { /* SW inactive */ }
     }, 500);
 
-    // Safety: stop polling after 2 minutes
     setTimeout(() => {
       clearInterval(pollInterval);
       btnDeclickbait.disabled = false;
       btnDeclickbait.classList.remove("processing");
-      btnDeclickbait.textContent = "De-clickbait!";
+      updateDeclickbaitButton();
     }, 120000);
-
-    return; // Don't fall through to the button reset below
+    return;
   } catch (err) {
     statusEl.textContent = "Cannot connect to page. Try refreshing.";
     statusEl.className = "status-msg error";
@@ -698,228 +905,13 @@ btnDeclickbait.addEventListener("click", async () => {
 
   btnDeclickbait.disabled = false;
   btnDeclickbait.classList.remove("processing");
-  btnDeclickbait.textContent = "De-clickbait!";
+  updateDeclickbaitButton();
 });
 
-// --- Always On: site management with dynamic permissions ---
+// ---------------------------------------------------------------------------
+// Cache clearing
+// ---------------------------------------------------------------------------
 
-function originsForHostname(hostname) {
-  return [`https://${hostname}/*`, `http://${hostname}/*`];
-}
-
-async function requestSitePermission(hostname) {
-  try {
-    // Always need site-specific permission for content script injection.
-    // <all_urls> additionally enables fetching article bodies (used by both
-    // de-clickbait context enrichment and Gist summaries) — bundle into one
-    // prompt if not already granted, so the user sees a single dialog.
-    const origins = originsForHostname(hostname);
-    let hasAllUrls = false;
-    try { hasAllUrls = await chrome.permissions.contains({ origins: ["<all_urls>"] }); } catch {}
-    if (!hasAllUrls) origins.push("<all_urls>");
-    return await chrome.permissions.request({ origins });
-  } catch {
-    // Safari may not support dynamic permissions — allow anyway
-    return true;
-  }
-}
-
-async function removeSitePermission(hostname) {
-  try {
-    return await chrome.permissions.remove({ origins: originsForHostname(hostname) });
-  } catch {
-    // Safari may not support dynamic permissions — ignore
-    return true;
-  }
-}
-
-async function getAutoSites() {
-  const data = await chrome.storage.local.get("autoSites");
-  return data.autoSites || [];
-}
-
-async function saveAutoSites(sites) {
-  await chrome.storage.local.set({ autoSites: sites });
-}
-
-async function updateSiteToggle() {
-  if (!_currentHostname) return;
-  const sites = await getAutoSites();
-  const isActive = sites.includes(_currentHostname);
-
-  if (isActive) {
-    toggleSiteText.textContent = "Active on this site";
-    btnToggleSite.classList.add("active");
-  } else {
-    toggleSiteText.textContent = "Enable for this site";
-    btnToggleSite.classList.remove("active");
-  }
-}
-
-btnToggleSite.addEventListener("click", async () => {
-  if (!_currentHostname) return;
-  const sites = await getAutoSites();
-  const index = sites.indexOf(_currentHostname);
-
-  const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
-  const isYouTube = YT_HOSTS.includes(_currentHostname);
-
-  if (index >= 0) {
-    // Disable: delegate to service worker (survives popup closing)
-    chrome.runtime.sendMessage({ action: "disable-site", hostname: _currentHostname }).catch(() => {});
-    await removeSitePermission(_currentHostname);
-
-    // Update ALL UI immediately
-    if (isYouTube) {
-      const ytCheckbox = document.getElementById("yt-titles-toggle");
-      if (ytCheckbox) ytCheckbox.checked = false;
-    }
-    toggleSiteText.textContent = "Enable for this site";
-    btnToggleSite.classList.remove("active");
-    setTimeout(() => renderSitesList(), 300);
-  } else {
-    // Get the tab BEFORE the permission dialog (which may close the popup)
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    // Save site BEFORE permission dialog — popup may die during dialog
-    // Service worker handles the storage write reliably
-    await chrome.runtime.sendMessage({
-      action: "enable-site",
-      hostname: _currentHostname,
-      tabId: tab?.id,
-    });
-
-    // Update ALL UI immediately before permission dialog
-    // (popup may close during dialog, so update everything now)
-    if (isYouTube) {
-      const ytCheckbox = document.getElementById("yt-titles-toggle");
-      if (ytCheckbox) ytCheckbox.checked = true;
-    }
-    // Force toggle button to "Active" state immediately
-    toggleSiteText.textContent = "Active on this site";
-    btnToggleSite.classList.add("active");
-    // Re-render sites list after a short delay (service worker needs time to write)
-    setTimeout(() => renderSitesList(), 300);
-
-    // Request permission — this may close the popup!
-    // Site is already saved, so if popup dies, it's still in the list.
-    const granted = await requestSitePermission(_currentHostname);
-    if (!granted) {
-      // User declined — remove the site we just added
-      chrome.runtime.sendMessage({ action: "disable-site", hostname: _currentHostname }).catch(() => {});
-      if (isYouTube) {
-        const ytCheckbox = document.getElementById("yt-titles-toggle");
-        if (ytCheckbox) ytCheckbox.checked = false;
-      }
-      updateSiteToggle();
-      renderSitesList();
-      return;
-    }
-  }
-  // UI is already updated in both enable/disable paths above
-  // Don't call updateSiteToggle()/renderSitesList() again here —
-  // they read from storage which may not have the new data yet
-});
-
-// Manage sites toggle
-btnManageSites.addEventListener("click", () => {
-  const isHidden = sitesPanel.classList.toggle("hidden");
-  btnManageSites.textContent = isHidden ? "Manage sites \u203a" : "Manage sites \u2039";
-  if (!isHidden) renderSitesList();
-});
-
-async function renderSitesList() {
-  const sites = await getAutoSites();
-
-  // Clear existing children safely
-  while (sitesList.firstChild) {
-    sitesList.removeChild(sitesList.firstChild);
-  }
-
-  if (sites.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "sites-empty";
-    empty.textContent = "No sites configured yet";
-    sitesList.appendChild(empty);
-    return;
-  }
-
-  for (const site of sites) {
-    const item = document.createElement("div");
-    item.className = "site-item";
-
-    const name = document.createElement("a");
-    name.className = "site-name";
-    name.textContent = site;
-    name.href = `https://${site}`;
-    name.target = "_blank";
-    name.rel = "noopener";
-    name.title = `Open ${site}`;
-
-    const removeBtn = document.createElement("button");
-    removeBtn.className = "btn-remove";
-    removeBtn.textContent = "\u00d7";
-    removeBtn.title = "Remove";
-    removeBtn.addEventListener("click", async () => {
-      const updated = (await getAutoSites()).filter((s) => s !== site);
-      await saveAutoSites(updated);
-      await removeSitePermission(site);
-      // If removing YouTube, also disable the YouTube toggle
-      const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
-      if (YT_HOSTS.includes(site)) {
-        const ytCheckbox = document.getElementById("yt-titles-toggle");
-        if (ytCheckbox) ytCheckbox.checked = false;
-        chrome.storage.local.set({ youtubeEnabled: false, youtubeThumbnails: false });
-        const thumbCheckbox = document.getElementById("yt-thumbnails-toggle");
-        if (thumbCheckbox) thumbCheckbox.checked = false;
-        updateYTToggleState();
-      }
-      renderSitesList();
-      updateSiteToggle();
-    });
-
-    item.appendChild(name);
-    item.appendChild(removeBtn);
-    sitesList.appendChild(item);
-  }
-}
-
-// Add site manually
-async function addSiteManually() {
-  let input = addSiteInput.value.trim();
-  if (!input) return;
-
-  // Extract hostname from URL if a full URL was entered
-  try {
-    if (input.includes("://")) {
-      input = new URL(input).hostname;
-    } else if (input.includes("/")) {
-      input = new URL("https://" + input).hostname;
-    }
-  } catch {
-    // keep as-is
-  }
-
-  const sites = await getAutoSites();
-  if (!sites.includes(input)) {
-    // Request permission first
-    const granted = await requestSitePermission(input);
-    if (!granted) return;
-    sites.push(input);
-    await saveAutoSites(sites);
-  }
-
-  addSiteInput.value = "";
-  renderSitesList();
-  updateSiteToggle();
-}
-
-btnAddSite.addEventListener("click", addSiteManually);
-addSiteInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") addSiteManually();
-});
-
-// Clear title cache (all providers)
 const btnClearCache = document.getElementById("btn-clear-cache");
 const _clearCacheOrigHTML = btnClearCache.cloneNode(true);
 function restoreClearBtn() {
@@ -931,7 +923,9 @@ function restoreClearBtn() {
 }
 btnClearCache.addEventListener("click", async () => {
   const allData = await chrome.storage.local.get(null);
-  const cacheKeys = Object.keys(allData).filter((k) => k.startsWith("unbait_cache") || k.startsWith("unbait_yt_cache") || k.startsWith("gist_cache") || k.startsWith("gist_yt_cache"));
+  const cacheKeys = Object.keys(allData).filter((k) =>
+    k.startsWith("unbait_cache") || k.startsWith("unbait_yt_cache") ||
+    k.startsWith("gist_cache") || k.startsWith("gist_yt_cache"));
   if (cacheKeys.length === 0) {
     btnClearCache.textContent = "Cache is empty";
     setTimeout(restoreClearBtn, 1500);

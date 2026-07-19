@@ -571,6 +571,176 @@ hr {
   background: var(--unbait-primary-hover);
 }
 
+/* Settings panel — general settings (header gear) */
+.settings-panel {
+  margin-bottom: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  background: #f9fafb;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
+.settings-panel.hidden {
+  display: none;
+}
+
+.settings-label {
+  font-size: 11px;
+  color: #555;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.settings-select {
+  margin-bottom: 0;
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+.settings-section {
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.settings-section.hidden {
+  display: none;
+}
+
+.settings-heading {
+  font-size: 11px;
+  color: #374151;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.settings-row .settings-label {
+  margin-bottom: 0;
+}
+
+.settings-row .click-mode-toggle {
+  flex: 0 0 auto;
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 11px;
+  color: #374151;
+  cursor: pointer;
+  margin-top: 0.4rem;
+}
+
+.settings-toggle input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.settings-hint {
+  font-size: 10px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+
+.settings-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.settings-slider-row .yt-slider {
+  flex: 1;
+}
+
+.settings-slider-end {
+  font-size: 10px;
+  color: #9ca3af;
+  white-space: nowrap;
+}
+
+/* Site mode toggle (Off / Gist / Full) — three-state segmented control */
+.site-mode-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.site-mode-btn {
+  flex: 1;
+  padding: 8px 0;
+  border: none;
+  background: #fff;
+  color: #9ca3af;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.site-mode-btn + .site-mode-btn {
+  border-left: 1px solid #e5e7eb;
+}
+
+.site-mode-btn.active {
+  background: var(--unbait-primary);
+  color: #fff;
+}
+
+.site-mode-btn:hover:not(.active):not(:disabled) {
+  background: #f9fafb;
+  color: #6b7280;
+}
+
+.site-mode-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Per-site mode picker inside Manage sites list */
+.site-item-mode {
+  display: flex;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-right: 6px;
+}
+
+.site-item-mode-btn {
+  padding: 3px 7px;
+  border: none;
+  background: #fff;
+  color: #9ca3af;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.site-item-mode-btn + .site-item-mode-btn {
+  border-left: 1px solid #e5e7eb;
+}
+
+.site-item-mode-btn.active {
+  background: var(--unbait-primary);
+  color: #fff;
+}
+
+.site-item-mode-btn:hover:not(.active) {
+  background: #f9fafb;
+}
+
 /* About button */
 .btn-about {
   display: block;
@@ -882,3 +1052,13 @@ hr {
   color: var(--unbait-primary);
   opacity: 0.7;
 }
+
+/* iOS-only / non-iOS-only visibility toggle.
+   Default: hide ios-only elements; show non-ios-only.
+   When body.is-ios is set (by popup.js via UA detection), invert.
+   Used to comply with App Store Guideline 3.1.1 — iOS build hides
+   third-party donation links (PayPal, GitHub Sponsors). */
+.ios-only { display: none; }
+body.is-ios .non-ios-only { display: none; }
+body.is-ios .ios-only { display: block; }
+body.is-ios a.ios-only { display: inline-flex; }

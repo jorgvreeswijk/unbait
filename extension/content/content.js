@@ -214,7 +214,7 @@ async function restoreCachedTitles() {
     const headlines = findHeadlines();
     if (headlines.length === 0) { _isRestoring = false; return; }
 
-    const provider = await Unbait.Unbait.getCurrentProvider();
+    const provider = await Unbait.getCurrentProvider();
     const cache = await getCache(provider);
     if (!cache || Object.keys(cache).length === 0) {
       injectGistIcons();
@@ -313,84 +313,36 @@ const CONFIG = {
   MIN_LINK_WIDTH_PX: 100,
   MIN_LINK_HEIGHT_PX: 20,
   MIN_PATH_LENGTH: 5,
-  CONTEXT_CONCURRENCY: 10,
+  CONTEXT_CONCURRENCY: 3,
   CONTEXT_TIMEOUT_MS: 6000,
   CONTEXT_MAX_BYTES: 131072,
-  CONTEXT_MAX_CHARS: 800,
-  META_DESC_MAX_CHARS: 300,
-  JSONLD_MAX_CHARS: 600,
-  PARAGRAPH_MAX_CHARS: 800,
-  MIN_PARAGRAPH_LENGTH: 40,
+  CONTEXT_BATCH_DELAY_MS: 400,
+  CONTEXT_BLOCK_COOLDOWN_MS: 10 * 60 * 1000,
 };
 
-function _decodeEntities(str) {
-  return str.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ").trim();
-}
+// Bot-block circuit breaker: sites behind Akamai/Cloudflare flag rapid parallel
+// article fetches and then block the user's normal browsing too. On the first
+// 403/429/503 we stop fetching context for a cooldown; headlines are still
+// rewritten, just without article context. Single value suffices here: this
+// script only fetches same-host URLs and lives per page.
+let _ctxBlockedUntil = 0;
 
-function _extractMetaDesc(html) {
-  const og = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)
-    || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i);
-  const meta = html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)
-    || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i);
-  return (og?.[1] || meta?.[1] || "").substring(0, CONFIG.META_DESC_MAX_CHARS);
-}
-
-function _extractJsonLd(html) {
-  const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-  let m;
-  while ((m = re.exec(html)) !== null) {
-    try {
-      let data = JSON.parse(m[1]);
-      if (data["@graph"]) data = data["@graph"];
-      const items = Array.isArray(data) ? data : [data];
-      for (const item of items) {
-        const t = (item["@type"] || "").toLowerCase();
-        if (t.includes("article") || t.includes("newsarticle") || t.includes("blogposting") || t.includes("reportage")) {
-          const body = item.articleBody || "";
-          const desc = item.description || "";
-          const text = body.length > desc.length ? body : desc;
-          if (text) return _decodeEntities(text).substring(0, CONFIG.JSONLD_MAX_CHARS);
-        }
-      }
-    } catch { /* skip */ }
-  }
-  return "";
-}
-
-function _extractArticleContext(html) {
-  const jsonLd = _extractJsonLd(html);
-  const metaDesc = _extractMetaDesc(html);
-  let bodyText = "";
-  let cleaned = html.replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "").replace(/<nav[\s\S]*?<\/nav>/gi, "")
-    .replace(/<header[\s\S]*?<\/header>/gi, "").replace(/<footer[\s\S]*?<\/footer>/gi, "")
-    .replace(/<aside[\s\S]*?<\/aside>/gi, "");
-  const artMatch = cleaned.match(/<(?:article|div)[^>]*(?:class|id)=["'][^"']*(?:article|story|post|entry|content)[-_]?(?:body|content|text|area)[^"']*["'][^>]*>([\s\S]*)/i)
-    || cleaned.match(/<article[^>]*>([\s\S]*)/i);
-  const region = artMatch ? artMatch[0] : cleaned;
-  const paragraphs = [];
-  let totalLen = 0;
-  const pRe = /<p[^>]*>([\s\S]*?)<\/p>/gi;
-  let pm;
-  while ((pm = pRe.exec(region)) !== null && totalLen < CONFIG.PARAGRAPH_MAX_CHARS) {
-    const text = _decodeEntities(pm[1].replace(/<[^>]+>/g, ""));
-    if (text.length < CONFIG.MIN_PARAGRAPH_LENGTH) continue;
-    paragraphs.push(text);
-    totalLen += text.length;
-  }
-  bodyText = paragraphs.join(" ");
-  const best = jsonLd || bodyText || "";
-  const extra = metaDesc && metaDesc !== best ? metaDesc : "";
-  if (best && extra) return (best + " | " + extra).substring(0, CONFIG.CONTEXT_MAX_CHARS);
-  return (best || extra || "").substring(0, CONFIG.CONTEXT_MAX_CHARS);
-}
+// HTML context extraction is provided by html-utils.js (HtmlExtract), which
+// is injected before this script. The service worker uses the same module via
+// importScripts so both code paths stay consistent.
 
 async function enrichHeadlinesWithContext(headlines) {
   const currentHost = window.location.hostname;
   const results = [];
   for (let i = 0; i < headlines.length; i += CONFIG.CONTEXT_CONCURRENCY) {
+    if (Date.now() < _ctxBlockedUntil) {
+      results.push(...headlines.slice(i));
+      break;
+    }
+    if (i > 0) {
+      await new Promise((r) =>
+        setTimeout(r, CONFIG.CONTEXT_BATCH_DELAY_MS + Math.random() * 300));
+    }
     const batch = headlines.slice(i, i + CONFIG.CONTEXT_CONCURRENCY);
     const promises = batch.map(async (h) => {
       try {
@@ -398,8 +350,17 @@ async function enrichHeadlinesWithContext(headlines) {
         if (url.hostname !== currentHost) return h;
         const controller = new AbortController();
         const tid = setTimeout(() => controller.abort(), CONFIG.CONTEXT_TIMEOUT_MS);
-        const resp = await fetch(h.url, { signal: controller.signal, credentials: "omit", referrer: "" });
+        // same-origin credentials + default referrer: a cookie-less fetch with a
+        // stripped referrer is the exact crawler fingerprint bot detection keys on
+        const resp = await fetch(h.url, { signal: controller.signal, credentials: "same-origin" });
         clearTimeout(tid);
+        if (resp.status === 403 || resp.status === 429 || resp.status === 503) {
+          if (Date.now() >= _ctxBlockedUntil) {
+            console.debug(`[Unbait] Context: HTTP ${resp.status} from ${currentHost} — pausing context fetches for ${CONFIG.CONTEXT_BLOCK_COOLDOWN_MS / 60000} min`);
+          }
+          _ctxBlockedUntil = Date.now() + CONFIG.CONTEXT_BLOCK_COOLDOWN_MS;
+          return h;
+        }
         if (!resp.ok) return h;
         const ct = resp.headers.get("content-type") || "";
         if (!ct.includes("text/html")) return h;
@@ -414,7 +375,7 @@ async function enrichHeadlinesWithContext(headlines) {
           bytes += value.length;
         }
         reader.cancel();
-        return { ...h, context: _extractArticleContext(html) };
+        return { ...h, context: HtmlExtract.extractContext(html) };
       } catch { return h; }
     });
     results.push(...(await Promise.all(promises)));
@@ -1195,7 +1156,26 @@ function findHeadlines() {
     addHeadline(found, seen, boldEl, anchor.href);
   });
 
-  return found;
+  return pruneNestedHeadlines(found);
+}
+
+/**
+ * Drop entries whose element wraps another entry's element. Multiple strategies
+ * may match an outer <a> and an inner heading for the same card — we keep the
+ * deepest (most specific) element so the icon lands next to the title and we
+ * don't process the same card twice (which doubled icons on BBC, wiped sibling
+ * <p> descriptions on NOS, and showed loading "..." on the wrapping link on
+ * WielerFlits). Sibling cards pointing to the same URL (e.g. carousel + main
+ * feed on bright.nl) are unaffected because neither contains the other.
+ */
+function pruneNestedHeadlines(found) {
+  const elements = found.map((h) => h.element);
+  return found.filter(({ element }) => {
+    for (const other of elements) {
+      if (other !== element && element.contains(other)) return false;
+    }
+    return true;
+  });
 }
 
 /**
@@ -1372,11 +1352,13 @@ async function checkContentAlwaysOn() {
     const host = window.location.hostname;
     if (/(^|\.)youtube\.com$/.test(host)) return;
 
-    const data = await chrome.storage.local.get("alwaysOnSites");
-    const sites = data.alwaysOnSites || [];
+    const data = await chrome.storage.local.get("autoSites");
+    const sites = data.autoSites || [];
     const match = sites.some((s) => {
-      if (!s) return false;
-      return host === s || host.endsWith("." + s) || host.endsWith(s);
+      const entryHost = typeof s === "string" ? s : s.host;
+      const mode = typeof s === "string" ? "full" : s.mode;
+      if (!entryHost || mode !== "full") return false;
+      return host === entryHost || host.endsWith("." + entryHost);
     });
     if (match) startContentObserving();
     else stopContentObserving();
@@ -1384,7 +1366,7 @@ async function checkContentAlwaysOn() {
 }
 
 chrome.storage.onChanged.addListener((changes) => {
-  if (changes.alwaysOnSites) checkContentAlwaysOn();
+  if (changes.autoSites) checkContentAlwaysOn();
 });
 
 checkContentAlwaysOn();

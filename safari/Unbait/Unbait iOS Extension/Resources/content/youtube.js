@@ -15,9 +15,16 @@ if (window.__unbaitYouTubeLoaded) {
 } else {
 window.__unbaitYouTubeLoaded = true;
 
+// iPadOS 13+ spoofs the User-Agent as "Macintosh", so UA string detection fails.
+// maxTouchPoints > 0 is the reliable cross-device way: iOS/iPad = 5, Mac = 0.
+// On iOS, content-script fetches are sandboxed (session cookies not shared),
+// so InnerTube always returns 0 tracks. Skip it to avoid hundreds of wasted calls.
+const IS_IOS = navigator.maxTouchPoints > 0;
+
 // Module state — grouped for readability
 const _state = {
   isProcessing: false,
+  phase2Running: false,
   rewriteResolve: null,
   replaceThumbnails: false,
   elements: new Map(),
@@ -29,6 +36,78 @@ const _state = {
 
 // Gist state is managed by shared.js (window.Unbait)
 const _gistTranscriptSource = new Map(); // url -> "transcript" | "title-only"
+
+// ---------------------------------------------------------------------------
+// Delegated click / keydown handlers for .unbait-icon and .gist-icon
+// Replaces per-icon inline addEventListener calls (which accumulate on re-render).
+// ---------------------------------------------------------------------------
+
+const _iconClickTimers = new WeakMap();
+
+document.addEventListener("click", (e) => {
+  // G-icon click (gist summary, no de-clickbaited title)
+  const gIcon = e.target.closest(".gist-icon");
+  if (gIcon) {
+    e.preventDefault();
+    e.stopPropagation();
+    const url = gIcon.dataset.gistUrl;
+    const title = gIcon.dataset.gistTitle;
+    const videoId = gIcon.dataset.gistVideoId;
+    if (url && title && videoId) handleGistYTClick(e, url, title, videoId, gIcon);
+    return;
+  }
+
+  const icon = e.target.closest(".unbait-icon");
+  if (!icon) return;
+  e.preventDefault();
+  e.stopPropagation();
+
+  // The title element is always the previous sibling of the icon
+  const el = icon.previousElementSibling;
+  if (!el || !el.dataset.unbaitOriginal) return;
+
+  if (!Unbait.gistEnabled) {
+    toggleTitle(el, icon);
+    return;
+  }
+
+  const existingTimer = _iconClickTimers.get(icon);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+    _iconClickTimers.delete(icon);
+    // Double click
+    if (Unbait.gistClickMode === "title") {
+      const videoId = el.dataset.unbaitVideoId || extractVideoId(el.closest("a")?.href);
+      const url = videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
+      const title = el.dataset.unbaitOriginal || el.textContent.trim();
+      if (url) handleGistYTClick(e, url, title, videoId, icon);
+    } else {
+      toggleTitle(el, icon);
+    }
+  } else {
+    const timer = setTimeout(() => {
+      _iconClickTimers.delete(icon);
+      // Single click
+      if (Unbait.gistClickMode === "title") {
+        toggleTitle(el, icon);
+      } else {
+        const videoId = el.dataset.unbaitVideoId || extractVideoId(el.closest("a")?.href);
+        const url = videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
+        const title = el.dataset.unbaitOriginal || el.textContent.trim();
+        if (url) handleGistYTClick(e, url, title, videoId, icon);
+      }
+    }, 250);
+    _iconClickTimers.set(icon, timer);
+  }
+}, true);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const icon = e.target.closest(".unbait-icon, .gist-icon");
+  if (!icon) return;
+  e.preventDefault();
+  icon.click();
+}, true);
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -77,7 +156,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.action === "yt-rewrite-complete") {
-    _state.isProcessing = false;
     const result = message.result;
     if (result && result.results) {
       for (const r of result.results) {
@@ -99,6 +177,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message.action === "gist-result") {
     handleGistResult(message);
+  }
+
+  if (message.action === "yt-ads-result") {
+    handleSponsorResult(message);
   }
 
   if (message.action === "get-stats") {
@@ -127,15 +209,22 @@ window.addEventListener("popstate", () => {
 // YouTube SPA navigation — fires when YouTube finishes loading a new "page"
 window.addEventListener("yt-navigate-finish", () => {
   _state.applied.clear();
+  setTimeout(() => initSponsorSkip(), 800);
   setTimeout(() => {
     if (!_state.isProcessing) {
       restoreCachedTitles();
-      chrome.storage.local.get(["youtubeEnabled", "alwaysOnSites"], (data) => {
-        const alwaysOn = (data.alwaysOnSites || []).some(
-          (s) => s === "youtube.com" || s === "www.youtube.com" || s === "*.youtube.com"
-        );
-        if ((data.youtubeEnabled || alwaysOn) && !_state.isProcessing) {
-          processYouTubeTitles();
+      chrome.storage.local.get("autoSites", (data) => {
+        const sites = data.autoSites || [];
+        const ytFull = sites.some((s) => {
+          const host = typeof s === "string" ? s : s.host;
+          const mode = typeof s === "string" ? "full" : s.mode;
+          return ["www.youtube.com", "youtube.com", "m.youtube.com"].includes(host) && mode === "full";
+        });
+        if (ytFull && !_state.isProcessing) {
+          _state.isProcessing = true;
+          processYouTubeTitles()
+            .then(() => { _state.isProcessing = false; })
+            .catch(() => { _state.isProcessing = false; });
         }
       });
     }
@@ -166,6 +255,20 @@ setTimeout(() => {
   if (!_state.isProcessing) restoreCachedTitles();
 }, 200);
 
+// Sponsor-skip self-init on load (watch pages only; gated by setting inside)
+setTimeout(() => initSponsorSkip(), 800);
+
+// Mobile YouTube (and any SPA nav that doesn't fire yt-navigate-finish) is
+// caught by polling the URL. initSponsorSkip() dedupes by videoId, so calling
+// it on every change is cheap.
+let _sponsorLastHref = location.href;
+setInterval(() => {
+  if (location.href !== _sponsorLastHref) {
+    _sponsorLastHref = location.href;
+    setTimeout(() => initSponsorSkip(), 600);
+  }
+}, 1500);
+
 // ---------------------------------------------------------------------------
 // Global state
 // ---------------------------------------------------------------------------
@@ -178,6 +281,7 @@ setTimeout(() => {
 
 const YT_CACHE_PREFIX = "unbait_yt_cache_";
 const YT_GIST_CACHE_PREFIX = "gist_yt_cache_";
+const YT_SPONSOR_CACHE_PREFIX = "yt_sponsor_cache_v2_";
 
 function getCache(provider) {
   return Unbait.getCache(YT_CACHE_PREFIX, provider);
@@ -236,7 +340,6 @@ function notifyBadgeCount() {
 function restoreIcons() {
   document.querySelectorAll(".unbait-replaced").forEach((el) => {
     if (!el.dataset.unbaitNew) return;
-    // Remove existing icon — check inside el and the immediate next sibling
     el.querySelector(".unbait-icon")?.remove();
     if (el.nextElementSibling?.classList.contains("unbait-icon")) {
       el.nextElementSibling.remove();
@@ -254,45 +357,7 @@ function restoreIcons() {
     if (currentText === el.dataset.unbaitOriginal) {
       icon.classList.add("showing-original");
     }
-    let _restoreClickTimer = null;
-    icon.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!Unbait.gistEnabled) {
-        toggleTitle(el, icon);
-        return;
-      }
-      if (_restoreClickTimer) {
-        clearTimeout(_restoreClickTimer);
-        _restoreClickTimer = null;
-        if (Unbait.gistClickMode === "title") {
-          const videoId = el.dataset.unbaitVideoId || extractVideoId(el.closest("a")?.href);
-          const url = videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
-          const title = el.dataset.unbaitOriginal || el.textContent.trim();
-          if (url) handleGistYTClick(e, url, title, videoId, icon);
-        } else {
-          toggleTitle(el, icon);
-        }
-      } else {
-        _restoreClickTimer = setTimeout(() => {
-          _restoreClickTimer = null;
-          if (Unbait.gistClickMode === "title") {
-            toggleTitle(el, icon);
-          } else {
-            const videoId = el.dataset.unbaitVideoId || extractVideoId(el.closest("a")?.href);
-            const url = videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
-            const title = el.dataset.unbaitOriginal || el.textContent.trim();
-            if (url) handleGistYTClick(e, url, title, videoId, icon);
-          }
-        }, 250);
-      }
-    });
-    icon.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        icon.click();
-      }
-    });
+    // Click/keydown handling is done via delegated listeners at module top.
     el.parentNode?.insertBefore(icon, el.nextSibling);
   });
 }
@@ -389,28 +454,177 @@ function extractVideoId(url) {
 // Transcript fetching
 // ---------------------------------------------------------------------------
 
+// Circuit breaker for YouTube's anti-bot rate limiting (HTTP 429 → redirect to
+// google.com/sorry CAPTCHA). When too many transcript fetches fire at once,
+// YouTube flags the session and blocks ALL transcript requests. Once tripped we
+// pause the bulk fetches for a cooldown so the session can recover instead of
+// escalating into a full CAPTCHA wall.
+let _ytRateLimitedUntil = 0;
+function ytRateLimited() { return Date.now() < _ytRateLimitedUntil; }
+function ytTripRateLimit(ms = 90000) {
+  if (!ytRateLimited()) {
+    console.debug(`[Unbait YT] YouTube rate-limit detected — pausing transcript fetches for ${ms / 1000}s`);
+  }
+  _ytRateLimitedUntil = Math.max(_ytRateLimitedUntil, Date.now() + ms);
+}
+
+// ---------------------------------------------------------------------------
+// Main-world bridge client
+//
+// content/yt-main-bridge.js runs in the PAGE's world and fetches captions with
+// the page's own cookies — the only context where YouTube reliably serves them
+// (extension contexts on iOS get empty 200 bodies). The SW registers it with
+// world: "MAIN"; if that fails we inject the same file via a <script src> tag.
+// ---------------------------------------------------------------------------
+
+let _bridgePromise = null;
+let _bridgeFallbackTried = false;
+const _bridgePending = new Map(); // requestId → { resolve, timer }
+
+window.addEventListener("message", (event) => {
+  if (event.source !== window) return;
+  if (event.origin !== location.origin) return;
+  const data = event.data;
+  if (!data || data.source !== "unbait-bridge") return;
+  const pending = _bridgePending.get(data.requestId);
+  if (!pending) return;
+  _bridgePending.delete(data.requestId);
+  clearTimeout(pending.timer);
+  pending.resolve(data);
+});
+
+function bridgeSend(msg, timeoutMs) {
+  return new Promise((resolve) => {
+    const requestId = crypto.randomUUID();
+    const timer = setTimeout(() => {
+      _bridgePending.delete(requestId);
+      resolve(null);
+    }, timeoutMs);
+    _bridgePending.set(requestId, { resolve, timer });
+    window.postMessage({ source: "unbait-cs", requestId, ...msg }, location.origin);
+  });
+}
+
+async function bridgePing(timeoutMs) {
+  const pong = await bridgeSend({ type: "unbait-bridge-ping" }, timeoutMs);
+  return !!pong;
+}
+
+function ensureBridge() {
+  if (_bridgePromise) return _bridgePromise;
+  _bridgePromise = (async () => {
+    if (await bridgePing(400)) {
+      console.debug("[Unbait YT] Bridge: pong (registered script)");
+      return true;
+    }
+    // Fallback: inject the bridge as a page <script> tag (needs the
+    // web_accessible_resources manifest entry). Used when the browser
+    // doesn't support/allow world:"MAIN" registration (e.g. older iOS).
+    if (!_bridgeFallbackTried) {
+      _bridgeFallbackTried = true;
+      try {
+        const el = document.createElement("script");
+        el.src = chrome.runtime.getURL("content/yt-main-bridge.js");
+        el.addEventListener("load", () => el.remove());
+        (document.head || document.documentElement).appendChild(el);
+        console.debug("[Unbait YT] Bridge: injected fallback script tag");
+      } catch (e) {
+        console.debug("[Unbait YT] Bridge: fallback injection failed:", e.message);
+      }
+      for (let i = 0; i < 6; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        if (await bridgePing(200)) {
+          console.debug("[Unbait YT] Bridge: pong (fallback tag)");
+          return true;
+        }
+      }
+    }
+    console.debug("[Unbait YT] Bridge: unavailable, using legacy fetch paths");
+    return false;
+  })();
+  return _bridgePromise;
+}
+
+// Fetch caption events via the main-world bridge. Returns events array or null.
+async function fetchCaptionEventsViaBridge(videoId, { bypassRateLimit = false, timeoutMs = 10000 } = {}) {
+  if (!bypassRateLimit && ytRateLimited()) return null;
+  if (!(await ensureBridge())) return null;
+  const result = await bridgeSend({ type: "unbait-transcript-request", videoId }, timeoutMs);
+  if (!result) return null;
+  if (!result.ok) {
+    if (result.status === 429) ytTripRateLimit();
+    console.debug("[Unbait YT] Bridge:", videoId, "→ no captions (status", result.status + ")");
+    return null;
+  }
+  console.debug("[Unbait YT] Bridge:", videoId, "→", result.events.length, "events via", result.via);
+  return result.events;
+}
+
+// Proxy a fetch through the service worker to bypass iOS Safari's content-script
+// CORS sandbox, which silently returns text/html + empty body for YouTube API
+// sub-resource requests. Returns the body text, or null on failure.
+async function fetchBodyViaServiceWorker(url, credentials = "include") {
+  try {
+    const result = await chrome.runtime.sendMessage({ action: "proxy-fetch", url, credentials });
+    const ct = result?.contentType || "";
+    console.debug("[Unbait YT] SW proxy result:", url.slice(0, 80),
+      "ok=" + result?.ok, "status=" + result?.status,
+      "ct=" + ct, "len=" + (result?.body?.length ?? "null"),
+      result?.error ? "err=" + result.error : "");
+    if (!result || !result.ok) return null;
+    if (!result.body || result.body.length === 0) return null;
+    // Filter out HTML error/redirect pages — caption data is always XML or JSON
+    if (ct.includes("text/html")) return null;
+    return result.body;
+  } catch (e) {
+    console.debug("[Unbait YT] SW proxy sendMessage error:", e.message);
+    return null;
+  }
+}
+
 // Fast path: works when on the video's own watch page (ytInitialPlayerResponse)
 async function fetchTranscriptFromPage(videoId) {
-  if (typeof window === "undefined" || !window.ytInitialPlayerResponse?.captions) return null;
+  if (typeof window === "undefined" || !window.ytInitialPlayerResponse?.captions) {
+    console.debug("[Unbait YT] fetchFromPage: no ytInitialPlayerResponse.captions");
+    return null;
+  }
   const pageVideoId = window.ytInitialPlayerResponse.videoDetails?.videoId;
-  if (pageVideoId && pageVideoId !== videoId) return null;
+  if (pageVideoId && pageVideoId !== videoId) {
+    console.debug("[Unbait YT] fetchFromPage: ID mismatch —", pageVideoId, "≠", videoId);
+    return null;
+  }
   const tracks = window.ytInitialPlayerResponse.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-  if (!tracks || tracks.length === 0) return null;
+  if (!tracks || tracks.length === 0) {
+    console.debug("[Unbait YT] fetchFromPage: no caption tracks");
+    return null;
+  }
   const preferred = tracks.find((t) => t.languageCode === navigator.language.split("-")[0] && t.kind !== "asr")
     || tracks.find((t) => t.languageCode === "en" && t.kind !== "asr")
     || tracks.find((t) => t.languageCode === "en")
     || tracks[0];
+  console.debug("[Unbait YT] fetchFromPage: fetching caption track", preferred.languageCode, preferred.kind);
   try {
     const captionResp = await fetch(preferred.baseUrl + "&fmt=json3", { credentials: "same-origin" });
+    console.debug("[Unbait YT] fetchFromPage: status", captionResp.status);
+    if (captionResp.status === 429) { ytTripRateLimit(); return null; }
     if (!captionResp.ok) return null;
     const captionData = await captionResp.json();
     return captionData.events || null;
-  } catch { return null; }
+  } catch (e) {
+    console.debug("[Unbait YT] fetchFromPage: error —", e.message);
+    return null;
+  }
 }
 
 // InnerTube ANDROID client — works from any YouTube page via content script.
 // credentials: "include" sends the user's YouTube session cookies (critical for EU).
-async function fetchTranscriptViaInnerTube(videoId) {
+// bypassRateLimit: true for single targeted requests (sponsor detection) that
+// should not be gated by the bulk-enrichment circuit breaker.
+async function fetchTranscriptViaInnerTube(videoId, bypassRateLimit = false) {
+  if (!bypassRateLimit && ytRateLimited()) {
+    console.debug("[Unbait YT] InnerTube: breaker open, skip", videoId);
+    return null;
+  }
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12000);
@@ -423,19 +637,21 @@ async function fetchTranscriptViaInnerTube(videoId) {
         videoId,
         context: {
           client: {
-            // ANDROID client returns captions; WEB client returns 0 tracks
-            clientName: "ANDROID",
-            clientVersion: "20.10.38",
-            androidSdkVersion: 30,
-            hl: "en",
+            // TVHTML5_SIMPLY_EMBEDDED_PLAYER doesn't require po_token (unlike
+            // ANDROID which YouTube restricted in 2024/2025 from browser contexts)
+            clientName: "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            clientVersion: "2.0",
           },
         },
       }),
     });
     clearTimeout(timer);
+    console.debug("[Unbait YT] InnerTube:", videoId, "→ status", playerResp.status);
+    if (playerResp.status === 429) { ytTripRateLimit(); return null; }
     if (!playerResp.ok) return null;
     const playerData = await playerResp.json();
     const tracks = playerData.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    console.debug("[Unbait YT] InnerTube:", videoId, "→ tracks", tracks?.length ?? 0);
     if (!tracks || tracks.length === 0) return null;
     const preferred = tracks.find((t) => t.languageCode === "en" && t.kind !== "asr")
       || tracks.find((t) => t.languageCode === "en")
@@ -444,17 +660,113 @@ async function fetchTranscriptViaInnerTube(videoId) {
     const captionUrl = new URL(preferred.baseUrl);
     captionUrl.searchParams.set("fmt", "json3");
     const captionResp = await fetch(captionUrl.toString(), { credentials: "include" });
+    console.debug("[Unbait YT] InnerTube:", videoId, "→ caption status", captionResp.status);
+    if (captionResp.status === 429) { ytTripRateLimit(); return null; }
     if (!captionResp.ok) return null;
     const captionData = await captionResp.json();
+    console.debug("[Unbait YT] InnerTube:", videoId, "→ events", captionData.events?.length ?? 0);
     return captionData.events || null;
+  } catch (e) {
+    console.debug("[Unbait YT] InnerTube:", videoId, "→ exception:", e.message);
+    return null;
+  }
+}
+
+// Fetch raw caption events for a video: main-world bridge first (page-context
+// cookies — the only path that works on iOS), then legacy fallbacks.
+// On iOS, InnerTube always returns 0 tracks (sandbox cookie isolation) so skip it.
+async function fetchCaptionEvents(videoId) {
+  let events = await fetchCaptionEventsViaBridge(videoId);
+  if (!events) events = await fetchTranscriptFromPage(videoId);
+  if (!events && !IS_IOS) events = await fetchTranscriptViaInnerTube(videoId);
+  return events;
+}
+
+// Parse YouTube's timedtext XML format into the same events array that json3 returns.
+// iOS content-script fetches can't send page session cookies, so YouTube serves XML
+// (its default unauthenticated timedtext format) instead of json3.
+function parseXmlCaptionsToEvents(xmlText) {
+  if (!xmlText || !xmlText.includes("<text")) return null;
+  try {
+    const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+    const nodes = doc.querySelectorAll("text");
+    const events = [];
+    for (const node of nodes) {
+      const start = parseFloat(node.getAttribute("start") || "0");
+      const dur = parseFloat(node.getAttribute("dur") || "0");
+      const content = node.textContent || "";
+      if (content.trim()) {
+        events.push({
+          tStartMs: Math.round(start * 1000),
+          dDurationMs: Math.round(dur * 1000),
+          segs: [{ utf8: content }],
+        });
+      }
+    }
+    return events.length > 0 ? events : null;
   } catch { return null; }
 }
 
-// Fetch raw caption events for a video (tries fast path, then InnerTube)
-async function fetchCaptionEvents(videoId) {
-  let events = await fetchTranscriptFromPage(videoId);
-  if (!events) events = await fetchTranscriptViaInnerTube(videoId);
+// Decode a fetch Response as caption events: JSON (fmt=json3) first, then XML fallback.
+async function parseCaptionBody(resp, label) {
+  const ct = resp.headers.get("content-type") || "";
+  const cl = resp.headers.get("content-length") || "?";
+  console.debug(`[Unbait YT] ${label}: ct=${ct} cl=${cl}`);
+  const text = await resp.text();
+  console.debug(`[Unbait YT] ${label}: body[0:60]`, text.slice(0, 60));
+  try {
+    const data = JSON.parse(text);
+    const events = data.events || null;
+    console.debug(`[Unbait YT] ${label}: events (json)`, events?.length ?? 0);
+    return events;
+  } catch { /* fall through to XML */ }
+  const events = parseXmlCaptionsToEvents(text);
+  console.debug(`[Unbait YT] ${label}: events (xml)`, events?.length ?? 0);
   return events;
+}
+
+// Read ytInitialPlayerResponse from inline <script> tags in the DOM.
+// The DOM textContent IS accessible from the isolated world even though
+// window.ytInitialPlayerResponse (the live JS variable) is not. Works for
+// fresh page loads; YouTube also injects a new script tag on SPA navigation.
+async function fetchCaptionEventsFromDOM(videoId) {
+  try {
+    for (const script of document.querySelectorAll("script")) {
+      const text = script.textContent || "";
+      if (!text.includes('"captionTracks"')) continue;
+      const idx = text.indexOf("ytInitialPlayerResponse");
+      if (idx === -1) continue;
+      const brace = text.indexOf("{", idx);
+      if (brace === -1) continue;
+      // Walk brackets to extract the full JSON object
+      let depth = 0, end = brace;
+      for (; end < text.length; end++) {
+        if (text[end] === "{") depth++;
+        else if (text[end] === "}") { if (--depth === 0) break; }
+      }
+      let ipr;
+      try { ipr = JSON.parse(text.slice(brace, end + 1)); } catch { continue; }
+      if (ipr?.videoDetails?.videoId !== videoId) continue;
+      const tracks = ipr.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+      console.debug("[Unbait YT] DOM parse: tracks", tracks?.length ?? 0, "for", videoId);
+      if (!tracks?.length) return null;
+      const preferred = tracks.find((t) => t.kind !== "asr") || tracks[0];
+      // Route through SW to bypass iOS content-script CORS sandbox
+      const captionUrl = preferred.baseUrl + "&fmt=json3";
+      const swBody = await fetchBodyViaServiceWorker(captionUrl);
+      if (swBody) {
+        try { const d = JSON.parse(swBody); if (d.events?.length > 0) return d.events; } catch {}
+        const xmlEvs = parseXmlCaptionsToEvents(swBody);
+        if (xmlEvs?.length > 0) return xmlEvs;
+      }
+      // Fallback: direct fetch (works on Mac where content script has cookie access)
+      const capResp = await fetch(captionUrl, { credentials: "include" });
+      if (!capResp.ok) return null;
+      const events = await parseCaptionBody(capResp, "DOM parse");
+      return events;
+    }
+  } catch { return null; }
+  return null;
 }
 
 // Build transcript text for de-clickbait title rewriting (chars/time-based)
@@ -472,7 +784,7 @@ function buildTitleTranscript(events) {
 async function buildGistTranscript(events) {
   if (!events || events.length === 0) return null;
   const data = await chrome.storage.local.get("ytGistDepth");
-  const depthPct = data.ytGistDepth || 50;
+  const depthPct = data.ytGistDepth || 100;
   const lastEv = events[events.length - 1];
   const totalMs = lastEv ? (lastEv.tStartMs || 0) + (lastEv.dDurationMs || 0) : 0;
   const cutoffMs = totalMs > 0 ? totalMs * (depthPct / 100) : Infinity;
@@ -496,22 +808,128 @@ async function buildGistTranscript(events) {
 }
 
 // Legacy wrapper for enrichWithTranscripts (de-clickbait flow)
+// NOTE: no HTML page-fetch fallback here — concurrent page fetches for 80+
+// sidebar titles cause YouTube 429s and bot-detection. If InnerTube fails
+// (e.g. on iOS where content-script fetches lack session cookies) we return
+// null rather than flooding the page with watch-page requests.
 async function fetchTranscript(videoId, signal) {
   try {
     const events = await fetchCaptionEvents(videoId);
-    if (!events) {
-      // Fallback: try page fetch for description
-      const resp = await fetch(`https://www.youtube.com/watch?v=${videoId}`, { credentials: "omit", referrer: "", signal });
-      if (!resp.ok) return null;
-      const html = await resp.text();
-      const match = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\})\s*;\s*(?:var\s|<\/script)/s);
-      if (!match) return null;
-      const data = JSON.parse(match[1]);
-      const desc = data?.videoDetails?.shortDescription;
-      return desc ? desc.slice(0, YT_CONFIG.DESCRIPTION_MAX_CHARS) : null;
+    return events ? buildTitleTranscript(events) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Fetch caption events by downloading the watch-page HTML and parsing
+// ytInitialPlayerResponse out of it. Used ONLY for sponsor detection (one
+// request per current video), never for bulk sidebar-title enrichment.
+async function fetchCaptionEventsFromWatchPage(videoId) {
+  if (ytRateLimited()) return null;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    const resp = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+      credentials: "include",
+      headers: { Accept: "text/html,application/xhtml+xml", "Accept-Language": navigator.language || "en" },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    console.debug("[Unbait YT] Page fetch: status", resp.status, "for", videoId);
+    if (resp.status === 429 || (resp.redirected && /\/sorry\b/.test(resp.url))) { ytTripRateLimit(); return null; }
+    if (!resp.ok) return null;
+    const html = await resp.text();
+
+    // Locate ytInitialPlayerResponse in the HTML and extract it with
+    // string-aware bracket counting so embedded } in string values don't
+    // confuse the depth tracker.
+    const marker = "ytInitialPlayerResponse";
+    let idx = html.indexOf(marker);
+    if (idx === -1) return null;
+    idx = html.indexOf("{", idx);
+    if (idx === -1) return null;
+    let depth = 0, inStr = false, escape = false, end = idx;
+    for (; end < html.length; end++) {
+      if (escape) { escape = false; continue; }
+      if (inStr) {
+        if (html[end] === "\\") escape = true;
+        else if (html[end] === '"') inStr = false;
+        continue;
+      }
+      if (html[end] === '"') { inStr = true; continue; }
+      if (html[end] === "{") depth++;
+      else if (html[end] === "}") { if (--depth === 0) break; }
     }
-    return buildTitleTranscript(events);
-  } catch { return null; }
+    let ipr;
+    try { ipr = JSON.parse(html.slice(idx, end + 1)); } catch { return null; }
+    if (ipr?.videoDetails?.videoId !== videoId) return null;
+
+    const tracks = ipr?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    console.debug("[Unbait YT] Page fetch: tracks", tracks?.length ?? 0, "for", videoId);
+    if (!tracks?.length) return null;
+    const preferred = tracks.find((t) => t.languageCode === "en" && t.kind !== "asr")
+      || tracks.find((t) => t.languageCode === "en")
+      || tracks[0];
+    const captionUrl = preferred.baseUrl + "&fmt=json3";
+    // Route through SW first to bypass iOS content-script CORS restrictions
+    const swBody = await fetchBodyViaServiceWorker(captionUrl, "include");
+    if (swBody) {
+      try { const d = JSON.parse(swBody); if (d.events?.length > 0) return d.events; } catch {}
+      const xmlEvs = parseXmlCaptionsToEvents(swBody);
+      if (xmlEvs?.length > 0) return xmlEvs;
+    }
+    // Fallback: direct fetch (works on Mac where content scripts have cookie access)
+    const capResp = await fetch(captionUrl, { credentials: "include" });
+    console.debug("[Unbait YT] Page fetch: caption status", capResp.status);
+    if (capResp.status === 429) { ytTripRateLimit(); return null; }
+    if (!capResp.ok) return null;
+    return await parseCaptionBody(capResp, "Page fetch (direct)");
+  } catch (e) {
+    console.debug("[Unbait YT] Page fetch: exception:", e.message);
+    // "Load failed" = Safari CORS-blocked the 429→google.com/sorry redirect.
+    // Trip the breaker so we don't hammer YouTube again for the next video.
+    if (e.message && (e.message.includes("Load failed") || e.message.includes("load failed"))) {
+      ytTripRateLimit(300000); // 5 min — CORS-blocked 429 means server-level block
+    }
+    return null;
+  }
+}
+
+// Lightweight alternative: fetch captions via YouTube's public timedtext API.
+// Two-step: (1) get the track list (detects video language), (2) fetch that language.
+// Routes all requests through the SW to bypass iOS content-script CORS restrictions.
+async function fetchCaptionEventsFromTimedtext(videoId) {
+  if (ytRateLimited()) return null;
+  try {
+    // Step 1: get list of available caption tracks via SW proxy
+    const listXml = await fetchBodyViaServiceWorker(
+      `https://www.youtube.com/api/timedtext?type=list&v=${videoId}`,
+      "include"
+    );
+    console.debug("[Unbait YT] timedtext list (SW):", (listXml || "").slice(0, 300));
+    if (!listXml || !listXml.includes("<track")) return null;
+
+    // Extract lang_code values; prefer English, else use first available
+    const langCodes = [...listXml.matchAll(/lang_code="([^"]+)"/g)].map((m) => m[1]);
+    if (!langCodes.length) return null;
+    const lang = langCodes.find((l) => l === "en" || l.startsWith("en-")) || langCodes[0];
+    console.debug("[Unbait YT] timedtext: lang", lang, "available:", langCodes);
+
+    // Step 2: fetch captions in the detected language (manual first, then ASR)
+    for (const kind of ["", "&kind=asr"]) {
+      const body = await fetchBodyViaServiceWorker(
+        `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${lang}${kind}&fmt=json3`,
+        "include"
+      );
+      if (!body) continue;
+      try { const d = JSON.parse(body); if (d.events?.length > 10) return d.events; } catch {}
+      const xmlEvs = parseXmlCaptionsToEvents(body);
+      if (xmlEvs && xmlEvs.length > 10) return xmlEvs;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -597,48 +1015,7 @@ function renderReplacedHeadline(el, newTitle, originalText) {
   icon.setAttribute("role", "button");
   icon.setAttribute("tabindex", "0");
   icon.setAttribute("aria-label", "Toggle original headline");
-  let _iconClickTimer = null;
-  icon.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!Unbait.gistEnabled) {
-      toggleTitle(el, icon);
-      return;
-    }
-    // Single/double click discrimination
-    if (_iconClickTimer) {
-      clearTimeout(_iconClickTimer);
-      _iconClickTimer = null;
-      // Double click
-      if (Unbait.gistClickMode === "title") {
-        const videoId = el.dataset.unbaitVideoId || extractVideoId(el.closest("a")?.href);
-        const url = videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
-        const title = el.dataset.unbaitOriginal || el.textContent.trim();
-        if (url) handleGistYTClick(e, url, title, videoId, icon);
-      } else {
-        toggleTitle(el, icon);
-      }
-    } else {
-      _iconClickTimer = setTimeout(() => {
-        _iconClickTimer = null;
-        // Single click
-        if (Unbait.gistClickMode === "title") {
-          toggleTitle(el, icon);
-        } else {
-          const videoId = el.dataset.unbaitVideoId || extractVideoId(el.closest("a")?.href);
-          const url = videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
-          const title = el.dataset.unbaitOriginal || el.textContent.trim();
-          if (url) handleGistYTClick(e, url, title, videoId, icon);
-        }
-      }, 250);
-    }
-  });
-  icon.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      icon.click();
-    }
-  });
+  // Click/keydown handling is done via delegated listeners at module top.
 
   // Remove any existing icon before inserting the new one
   el.querySelector(".unbait-icon")?.remove();
@@ -908,11 +1285,7 @@ function injectYTGistIcons() {
     gIcon.dataset.gistUrl = item.url;
     gIcon.dataset.gistTitle = item.text;
     gIcon.dataset.gistVideoId = item.videoId;
-    gIcon.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      handleGistYTClick(e, item.url, item.text, item.videoId, gIcon);
-    });
+    // Click/keydown handling is done via delegated listeners at module top.
     // Place as sibling after title (same as U-icon placement)
     el.parentNode?.insertBefore(gIcon, el.nextSibling);
   }
@@ -1118,7 +1491,16 @@ async function processYouTubeTitles() {
     };
   }
 
-  // Enrich uncached titles with transcript context (limited concurrency)
+  // Enrich uncached titles with transcript context (limited concurrency).
+  // On watch pages, fire sponsor detection first and wait 3 s before starting
+  // the InnerTube flood — sponsor transcript fetch is the first call and needs
+  // to succeed before rate-limiting kicks in from the bulk requests.
+  if (window.location.pathname === "/watch") {
+    initSponsorSkip();
+    console.debug("[Unbait YT] Watch page: holding enrichment 3s for sponsor transcript");
+    await new Promise((r) => setTimeout(r, 3000));
+    console.debug("[Unbait YT] Watch page: 3s wait done, starting bulk enrichment");
+  }
   await enrichWithTranscripts(uncachedData);
 
   // Optionally replace thumbnails
@@ -1184,12 +1566,21 @@ async function processYouTubeTitles() {
 }
 
 async function processRemainingTitles(titles, provider) {
-  console.debug(`[Unbait YT] Phase 2: processing ${titles.length} remaining titles`);
-  const cache = await loadCache(provider);
-  const { uncachedData, cachedCount } = categorizeHeadlines(titles, cache);
-  if (uncachedData.length === 0) return;
-  await enrichWithTranscripts(uncachedData);
-  await fetchAndApplyResults(uncachedData, provider, cachedCount, titles.length);
+  if (_state.phase2Running) {
+    console.debug("[Unbait YT] Phase 2: already running, skip");
+    return;
+  }
+  _state.phase2Running = true;
+  try {
+    console.debug(`[Unbait YT] Phase 2: processing ${titles.length} remaining titles`);
+    const cache = await loadCache(provider);
+    const { uncachedData, cachedCount } = categorizeHeadlines(titles, cache);
+    if (uncachedData.length === 0) return;
+    await enrichWithTranscripts(uncachedData);
+    await fetchAndApplyResults(uncachedData, provider, cachedCount, titles.length);
+  } finally {
+    _state.phase2Running = false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1257,15 +1648,14 @@ function stopObserving() {
 // Check if "Always On" includes youtube.com and start observer accordingly
 async function checkAlwaysOn() {
   try {
-    const data = await chrome.storage.local.get("alwaysOnSites");
-    const sites = data.alwaysOnSites || [];
-    const isYouTubeAlwaysOn = sites.some(
-      (s) =>
-        s === "youtube.com" ||
-        s === "www.youtube.com" ||
-        s === "*.youtube.com" ||
-        window.location.hostname.endsWith(s)
-    );
+    const data = await chrome.storage.local.get("autoSites");
+    const sites = data.autoSites || [];
+    const isYouTubeAlwaysOn = sites.some((s) => {
+      const host = typeof s === "string" ? s : s.host;
+      const mode = typeof s === "string" ? "full" : s.mode;
+      if (mode !== "full") return false;
+      return ["www.youtube.com", "youtube.com", "m.youtube.com"].includes(host);
+    });
     if (isYouTubeAlwaysOn) {
       startObserving();
     } else {
@@ -1278,12 +1668,328 @@ async function checkAlwaysOn() {
 
 // Listen for storage changes to toggle observer
 chrome.storage.onChanged.addListener((changes) => {
-  if (changes.alwaysOnSites) {
+  if (changes.autoSites) {
     checkAlwaysOn();
   }
 });
 
 // Initial check
 checkAlwaysOn();
+
+// ---------------------------------------------------------------------------
+// In-video sponsor / self-promo skip
+// Detects creator-read ad segments (not blocked by YouTube Premium) from the
+// timestamped transcript and lets the viewer skip them — via a button by
+// default, or fully automatically when ytSponsorAuto is on.
+// ---------------------------------------------------------------------------
+
+const _sponsor = {
+  videoId: null,
+  url: null,
+  segments: [],
+  auto: false,
+  video: null,
+  timeupdateHandler: null,
+  button: null,
+  activeSegment: null,
+  pending: false,
+  retryTimer: null,
+};
+
+const SPONSOR_SKIP_PAD_S = 0.3; // stop a touch before the detected end
+// Mobile YouTube (m.youtube.com) has a different player DOM than desktop:
+// no #movie_player / .html5-video-player / .ytp-progress-bar. We render the
+// skip button as a fixed viewport overlay there instead of inside the player.
+const IS_YT_MOBILE = location.hostname === "m.youtube.com";
+
+// Build a densely-timestamped transcript (a [m:ss] marker roughly every ~12s)
+// so the LLM can pin segment boundaries precisely. Whole video, capped.
+function buildSponsorTranscript(events) {
+  if (!events || events.length === 0) return null;
+  const MAX_CHARS = 16000;
+  const STAMP_EVERY_MS = 12000;
+  let text = "";
+  let lastStampMs = -STAMP_EVERY_MS;
+  for (const ev of events) {
+    if (!ev.segs) continue;
+    if (ev.tStartMs != null && ev.tStartMs - lastStampMs >= STAMP_EVERY_MS) {
+      const min = Math.floor(ev.tStartMs / 60000);
+      const sec = Math.floor((ev.tStartMs % 60000) / 1000).toString().padStart(2, "0");
+      text += `[${min}:${sec}] `;
+      lastStampMs = ev.tStartMs;
+    }
+    text += ev.segs.map((s) => s.utf8).join("");
+  }
+  return text.replace(/\n/g, " ").trim().slice(0, MAX_CHARS) || null;
+}
+
+function getSponsorYTCache(url) {
+  return Unbait.getGistCache(url, YT_SPONSOR_CACHE_PREFIX);
+}
+
+function cacheSponsorYTEntry(url, segments) {
+  // Reuse the gist cache shape; segments ride along as an extra field.
+  Unbait.cacheGistEntry(url, "", YT_SPONSOR_CACHE_PREFIX, YT_CONFIG.CACHE_MAX_ENTRIES, { segments });
+}
+
+// Tear down any active listeners/UI (called on SPA navigation away).
+function resetSponsorSkip() {
+  if (_sponsor.video && _sponsor.timeupdateHandler) {
+    _sponsor.video.removeEventListener("timeupdate", _sponsor.timeupdateHandler);
+  }
+  hideSponsorButton();
+  document.querySelectorAll(".ytp-progress-bar .unbait-sponsor-marker").forEach((m) => m.remove());
+  if (_sponsor.retryTimer) { clearTimeout(_sponsor.retryTimer); _sponsor.retryTimer = null; }
+  _sponsor.videoId = null;
+  _sponsor.url = null;
+  _sponsor.segments = [];
+  _sponsor.video = null;
+  _sponsor.timeupdateHandler = null;
+  _sponsor.activeSegment = null;
+  _sponsor.pending = false;
+}
+
+async function initSponsorSkip() {
+  try {
+    // Left a watch page → tear down any leftover UI.
+    if (window.location.pathname !== "/watch") { resetSponsorSkip(); return; }
+
+    const data = await chrome.storage.local.get(["ytSponsorSkip", "ytSponsorAuto"]);
+    if (data.ytSponsorSkip === false) { resetSponsorSkip(); return; } // default on
+    _sponsor.auto = !!data.ytSponsorAuto;
+
+    const videoId = extractVideoId(window.location.href);
+    if (!videoId) return;
+    // Same video we're already handling → nothing to do (dedupes the multiple
+    // triggers: on-load timer, yt-navigate-finish, and the URL poll).
+    if (videoId === _sponsor.videoId) return;
+
+    // New video → reset previous state, then set up this one.
+    resetSponsorSkip();
+    _sponsor.videoId = videoId;
+    _sponsor.url = `https://www.youtube.com/watch?v=${videoId}`;
+    console.debug("[Unbait YT] Sponsor init for", videoId, IS_YT_MOBILE ? "(mobile)" : "");
+
+    // Cache hit → apply immediately
+    const cached = await getSponsorYTCache(_sponsor.url);
+    if (cached && Array.isArray(cached.segments)) {
+      _sponsor.segments = cached.segments;
+      attachSponsorToVideo();
+      return;
+    }
+
+    requestSponsorDetection(videoId);
+  } catch {
+    _sponsor.pending = false;
+  }
+}
+
+// Fetch the transcript in the content script (has same-origin cookies) and send
+// it to the SW for LLM analysis. The previous approach of fetching from the SW
+// failed on iOS because sandbox restrictions block executeScript in MAIN world,
+// and SW-side InnerTube requests lack the page cookies needed on iOS.
+async function requestSponsorDetection(videoId) {
+  if (_sponsor.videoId !== videoId) return;
+  _sponsor.pending = true;
+  const title = document.title.replace(/ - YouTube$/, "").trim();
+
+  console.debug("[Unbait YT] Sponsor: fetching transcript for", videoId);
+  let transcript = null;
+  try {
+    // 0. Main-world bridge — fetches with the page's own cookies; the only
+    //    path that works on iOS, and the cheapest on Mac (no extra requests
+    //    for the current video).
+    let events = await fetchCaptionEventsViaBridge(videoId, { bypassRateLimit: true });
+    // 1. DOM script tags — zero extra requests, works on initial hard load.
+    //    On SPA navigation YouTube updates window.ytInitialPlayerResponse but
+    //    doesn't always inject a new <script> tag, so this may miss.
+    if (!events) events = await fetchCaptionEventsFromDOM(videoId);
+    // 2. Lightweight timedtext API — single GET per video, no signed URL needed,
+    //    works on iOS, much lighter than a full page fetch.
+    if (!events) {
+      console.debug("[Unbait YT] Sponsor: trying timedtext API");
+      events = await fetchCaptionEventsFromTimedtext(videoId);
+    }
+    // 3. InnerTube API — works on Mac/Chrome (session cookies shared); skip on
+    //    iOS where sandbox isolation means InnerTube always returns 0 tracks.
+    if (!events && !IS_IOS) {
+      console.debug("[Unbait YT] Sponsor: DOM miss, trying InnerTube");
+      events = await fetchTranscriptViaInnerTube(videoId, true);
+    }
+    // 4. Watch-page HTML fetch — heavy last-resort (500 KB HTML); skipped if
+    //    rate-limited since timedtext failure probably means same block.
+    if (!events) {
+      console.debug("[Unbait YT] Sponsor: trying watch-page fetch");
+      events = await fetchCaptionEventsFromWatchPage(videoId);
+    }
+    transcript = events ? buildSponsorTranscript(events) : null;
+  } catch { /* ignore */ }
+
+  if (!transcript) {
+    console.debug("[Unbait YT] Sponsor: no transcript for", videoId);
+    _sponsor.pending = false;
+    return;
+  }
+  if (_sponsor.videoId !== videoId) return; // navigated away during fetch
+
+  console.debug("[Unbait YT] Sponsor: requesting detection for", videoId);
+  chrome.runtime.sendMessage({
+    action: "detect-youtube-ads",
+    videoId, url: _sponsor.url, title, transcript,
+  }).catch(() => { _sponsor.pending = false; });
+}
+
+function handleSponsorResult(message) {
+  _sponsor.pending = false;
+  if (message.error) {
+    // "no_transcript" = couldn't analyse (no captions); don't cache, don't show error
+    if (message.error !== "no_transcript") {
+      console.debug("[Unbait YT] Sponsor detection error:", message.error);
+    }
+    return;
+  }
+  const segments = Array.isArray(message.segments) ? message.segments : [];
+  // Only cache when the LLM actually ran (segments may be [] = video has no sponsors)
+  if (message.url) cacheSponsorYTEntry(message.url, segments);
+  // Ignore stale results for a video we've since navigated away from
+  if (message.url && message.url !== _sponsor.url) return;
+  _sponsor.segments = segments;
+  console.debug(`[Unbait YT] Sponsor segments: ${segments.length}`);
+  attachSponsorToVideo();
+}
+
+function findPlayerVideo() {
+  return document.querySelector(".html5-main-video")
+    || document.querySelector("#movie_player video")
+    || document.querySelector("video");
+}
+
+function attachSponsorToVideo(attempt = 0) {
+  if (_sponsor.segments.length === 0) return;
+  const video = findPlayerVideo();
+  if (!video) {
+    if (attempt < 10) setTimeout(() => attachSponsorToVideo(attempt + 1), 500);
+    return;
+  }
+  // Re-bind if the video element changed (SPA can swap it)
+  if (_sponsor.video && _sponsor.timeupdateHandler && _sponsor.video !== video) {
+    _sponsor.video.removeEventListener("timeupdate", _sponsor.timeupdateHandler);
+    _sponsor.timeupdateHandler = null;
+  }
+  _sponsor.video = video;
+
+  if (!_sponsor.timeupdateHandler) {
+    _sponsor.timeupdateHandler = () => onSponsorTimeUpdate(video);
+    video.addEventListener("timeupdate", _sponsor.timeupdateHandler);
+  }
+  drawSponsorMarkers();
+}
+
+function currentSegmentAt(t) {
+  for (const seg of _sponsor.segments) {
+    if (t >= seg.start && t < seg.end - SPONSOR_SKIP_PAD_S) return seg;
+  }
+  return null;
+}
+
+function onSponsorTimeUpdate(video) {
+  const seg = currentSegmentAt(video.currentTime);
+  if (seg) {
+    if (_sponsor.auto) {
+      video.currentTime = seg.end;
+      hideSponsorButton();
+    } else if (_sponsor.activeSegment !== seg) {
+      showSponsorButton(seg, video);
+    }
+  } else if (_sponsor.activeSegment) {
+    hideSponsorButton();
+  }
+}
+
+function getPlayerContainer() {
+  return document.querySelector("#movie_player")
+    || document.querySelector(".html5-video-player")
+    || _sponsor.video?.parentElement;
+}
+
+function showSponsorButton(seg, video) {
+  _sponsor.activeSegment = seg;
+
+  if (!_sponsor.button) {
+    _sponsor.button = document.createElement("button");
+    _sponsor.button.type = "button";
+  }
+  const btn = _sponsor.button;
+
+  // Mobile: fixed viewport overlay (mobile player DOM differs from desktop and
+  // in-player positioning renders the button off-screen). Desktop: inside the
+  // player container, above the control bar.
+  if (IS_YT_MOBILE) {
+    btn.className = "unbait-skip-btn unbait-skip-btn-mobile";
+    if (btn.parentElement !== document.body) document.body.appendChild(btn);
+  } else {
+    const container = getPlayerContainer();
+    if (!container) {
+      // Player container not found (e.g. iOS/iPad with non-standard DOM) —
+      // use fixed viewport overlay as a reliable fallback.
+      btn.className = "unbait-skip-btn unbait-skip-btn-mobile";
+      if (btn.parentElement !== document.body) document.body.appendChild(btn);
+    } else {
+      btn.className = "unbait-skip-btn";
+      if (getComputedStyle(container).position === "static") {
+        container.style.position = "relative";
+      }
+      if (btn.parentElement !== container) container.appendChild(btn);
+    }
+  }
+
+  const labelKind = seg.category === "selfpromo" ? "promo" : "sponsor";
+  _sponsor.button.textContent = `Skip ${labelKind} »`;
+  _sponsor.button.title = seg.label || (seg.category === "selfpromo" ? "Self-promotion" : "Sponsor");
+  _sponsor.button.onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    video.currentTime = seg.end;
+    hideSponsorButton();
+  };
+  _sponsor.button.style.display = "block";
+}
+
+function hideSponsorButton() {
+  _sponsor.activeSegment = null;
+  if (_sponsor.button) _sponsor.button.style.display = "none";
+}
+
+// Colored markers on the progress bar (best-effort, desktop player only).
+function drawSponsorMarkers(attempt = 0) {
+  const bar = document.querySelector(".ytp-progress-bar");
+  if (!bar) return; // mobile / no desktop progress bar — skip silently
+  const duration = _sponsor.video?.duration;
+  if (!duration || !isFinite(duration) || duration <= 0) {
+    // Duration may not be known yet; retry a few times then give up.
+    if (_sponsor.segments.length > 0 && attempt < 8) {
+      setTimeout(() => drawSponsorMarkers(attempt + 1), 1000);
+    }
+    return;
+  }
+  bar.querySelectorAll(".unbait-sponsor-marker").forEach((m) => m.remove());
+  for (const seg of _sponsor.segments) {
+    const marker = document.createElement("div");
+    marker.className = "unbait-sponsor-marker " + (seg.category === "selfpromo" ? "promo" : "sponsor");
+    marker.style.left = (100 * seg.start / duration) + "%";
+    marker.style.width = (100 * (seg.end - seg.start) / duration) + "%";
+    bar.appendChild(marker);
+  }
+}
+
+// React to the toggle being switched on/off while a watch page is open.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.ytSponsorAuto) _sponsor.auto = !!changes.ytSponsorAuto.newValue;
+  if (changes.ytSponsorSkip) {
+    if (changes.ytSponsorSkip.newValue) initSponsorSkip();
+    else resetSponsorSkip();
+  }
+});
 
 } // end double-injection guard

@@ -1,3 +1,6 @@
+// Shared HTML extraction (decodeEntities, extractMetaDescription, extractJsonLd, extractContext)
+importScripts('../content/html-utils.js');
+
 // Track active job status per tab
 const _tabStatus = new Map();
 
@@ -11,18 +14,218 @@ const IS_SAFARI = (() => {
   } catch { return false; }
 })();
 
-// Migrate autoSites from sync to local (one-time, for Safari compatibility)
-chrome.storage.sync.get("autoSites").then((syncData) => {
-  if (syncData.autoSites && syncData.autoSites.length > 0) {
-    chrome.storage.local.get("autoSites").then((localData) => {
+const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
+
+const CONFIG = {
+  CONTEXT_CONCURRENCY: 3,
+  CONTEXT_TIMEOUT_MS: 6000,
+  CONTEXT_MAX_BYTES: 131072,
+  CONTEXT_BATCH_DELAY_MS: 400,
+  CONTEXT_BLOCK_COOLDOWN_MS: 10 * 60 * 1000,
+  MAX_TITLE_LENGTH: 80,
+  GEMINI_BATCH_SIZE: 60,
+  GEMINI_BATCH_DELAY_MS: 15000,
+  GEMINI_MAX_RETRIES: 2,
+  GEMINI_RETRY_BASE_MS: 10000,
+  CLAUDE_MAX_TOKENS: 4096,
+  OPENAI_MAX_TOKENS: 4096,
+  GEMINI_MAX_TOKENS: 8192,
+  AUTO_TRIGGER_DELAY_MS: 500,
+};
+
+// Bot-block circuit breaker, per host: sites behind Akamai/Cloudflare flag
+// rapid parallel article fetches and then block the user's normal browsing
+// too. On the first 403/429/503 we stop fetching that host for a cooldown;
+// headlines are still rewritten, just without article context. Per-host Map
+// because the SW fetches cross-domain (unlike the content script).
+const _ctxHostBlockedUntil = new Map();
+
+function ctxHostBlocked(url) {
+  try {
+    const until = _ctxHostBlockedUntil.get(new URL(url).hostname) || 0;
+    return Date.now() < until;
+  } catch { return false; }
+}
+
+function ctxTripHostBlock(url, status) {
+  try {
+    const host = new URL(url).hostname;
+    if (!ctxHostBlocked(url)) {
+      console.debug(`[Unbait] Context: HTTP ${status} from ${host} — pausing fetches to this host for ${CONFIG.CONTEXT_BLOCK_COOLDOWN_MS / 60000} min`);
+    }
+    _ctxHostBlockedUntil.set(host, Date.now() + CONFIG.CONTEXT_BLOCK_COOLDOWN_MS);
+  } catch { /* invalid URL — nothing to block */ }
+}
+
+// ---------------------------------------------------------------------------
+// Storage model (v2):
+//   autoSites: [{ host: "www.nu.nl", mode: "full" | "gist" }]
+//   alwaysGist: boolean       — auto-inject G-icons on every other site
+//   gistExcludedSites: string[] — sites where alwaysGist must NOT inject
+//
+// Legacy keys we migrate away from:
+//   autoSites: string[]       — converted to {host, mode:"full"} objects
+//   gistEnabled: boolean      — dropped (mode is now per-site)
+//   youtubeEnabled: boolean   — dropped (presence in autoSites is the truth)
+// ---------------------------------------------------------------------------
+
+async function migrateStorage() {
+  // 1. Pull legacy autoSites from sync (kept here from earlier Safari migration).
+  try {
+    const syncData = await chrome.storage.sync.get("autoSites");
+    if (syncData.autoSites && syncData.autoSites.length > 0) {
+      const localData = await chrome.storage.local.get("autoSites");
       if (!localData.autoSites || localData.autoSites.length === 0) {
-        chrome.storage.local.set({ autoSites: syncData.autoSites });
+        await chrome.storage.local.set({ autoSites: syncData.autoSites });
       }
-      // Clean up sync storage
-      chrome.storage.sync.remove("autoSites");
-    });
+      await chrome.storage.sync.remove("autoSites");
+    }
+  } catch { /* ignore */ }
+
+  // 2. Convert autoSites: string[] → {host, mode}[]. If the YouTube toggle was
+  //    on but youtube.com isn't in the list, add it. Drop legacy gistEnabled
+  //    and youtubeEnabled flags once migrated.
+  const data = await chrome.storage.local.get(["autoSites", "youtubeEnabled", "gistEnabled"]);
+  const sites = data.autoSites || [];
+  const needsConvert = sites.length > 0 && typeof sites[0] === "string";
+
+  if (needsConvert || data.youtubeEnabled !== undefined || data.gistEnabled !== undefined) {
+    let converted = needsConvert
+      ? sites.map((host) => ({ host, mode: "full" }))
+      : sites.slice();
+
+    if (data.youtubeEnabled === true) {
+      const hasYT = converted.some((s) => YT_HOSTS.includes(s.host));
+      if (!hasYT) converted.push({ host: "www.youtube.com", mode: "full" });
+    }
+
+    await chrome.storage.local.set({ autoSites: converted });
+    await chrome.storage.local.remove(["youtubeEnabled", "gistEnabled"]);
   }
-}).catch(() => {});
+}
+
+// Run migration at startup. All other code reads the new shape.
+const _migrationPromise = migrateStorage().catch(() => {});
+
+// ---------------------------------------------------------------------------
+// Site mode helpers
+// ---------------------------------------------------------------------------
+
+async function getAutoSites() {
+  const data = await chrome.storage.local.get("autoSites");
+  return data.autoSites || [];
+}
+
+async function getSiteMode(hostname) {
+  if (!hostname) return null;
+  const sites = await getAutoSites();
+  const match = sites.find((s) => s.host === hostname || (YT_HOSTS.includes(hostname) && YT_HOSTS.includes(s.host)));
+  return match ? match.mode : null;
+}
+
+async function getAlwaysGist() {
+  const data = await chrome.storage.local.get(["alwaysGist", "gistExcludedSites"]);
+  return {
+    enabled: !!data.alwaysGist,
+    excluded: data.gistExcludedSites || [],
+  };
+}
+
+// Returns "full" | "gist" | null for a hostname, taking alwaysGist into account.
+async function getEffectiveMode(hostname) {
+  const explicit = await getSiteMode(hostname);
+  if (explicit) return explicit;
+  const { enabled, excluded } = await getAlwaysGist();
+  if (enabled && !excluded.includes(hostname)) return "gist";
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Global gist-only content script registration
+// ---------------------------------------------------------------------------
+
+async function syncGlobalGistRegistration() {
+  if (!chrome.scripting?.registerContentScripts) return; // unsupported
+  const { enabled, excluded } = await getAlwaysGist();
+  try {
+    const existing = await chrome.scripting.getRegisteredContentScripts({ ids: ["gist-global"] });
+    if (existing.length > 0) {
+      await chrome.scripting.unregisterContentScripts({ ids: ["gist-global"] });
+    }
+  } catch { /* ignore */ }
+
+  if (!enabled) return;
+
+  // Also exclude sites with explicit mode (those use their own injection path).
+  const sites = await getAutoSites();
+  const excludeMatches = [];
+  for (const host of new Set([...excluded, ...sites.map((s) => s.host)])) {
+    excludeMatches.push(`https://${host}/*`);
+    excludeMatches.push(`http://${host}/*`);
+  }
+
+  try {
+    await chrome.scripting.registerContentScripts([{
+      id: "gist-global",
+      matches: ["<all_urls>"],
+      excludeMatches,
+      js: ["content/shared.js", "content/gist-only.js"],
+      css: ["content/content.css"],
+      runAt: "document_idle",
+      allFrames: false,
+    }]);
+  } catch (e) {
+    console.debug("[Unbait] registerContentScripts failed:", e?.message);
+  }
+}
+
+// Re-sync registration whenever the relevant storage changes.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.alwaysGist || changes.gistExcludedSites || changes.autoSites) {
+    syncGlobalGistRegistration();
+  }
+});
+
+// Initial sync after migration.
+_migrationPromise.then(syncGlobalGistRegistration);
+
+// ---------------------------------------------------------------------------
+// YouTube main-world bridge registration
+// ---------------------------------------------------------------------------
+
+// Registers content/yt-main-bridge.js in the PAGE's world (world: "MAIN") on
+// YouTube. The bridge fetches caption data with the page's own cookies — the
+// only context where YouTube reliably serves captions (extension contexts on
+// iOS get empty 200 bodies). Registered unconditionally: it's an inert
+// postMessage listener until the content script asks it for a transcript.
+// If this registration fails (Safari may reject the world key), the content
+// script falls back to injecting the same file via a <script src> tag.
+async function registerYtBridge() {
+  if (!chrome.scripting?.registerContentScripts) return; // unsupported
+  try {
+    const existing = await chrome.scripting.getRegisteredContentScripts({ ids: ["yt-main-bridge"] });
+    if (existing.length > 0) {
+      await chrome.scripting.unregisterContentScripts({ ids: ["yt-main-bridge"] });
+    }
+  } catch { /* ignore */ }
+  try {
+    await chrome.scripting.registerContentScripts([{
+      id: "yt-main-bridge",
+      matches: ["https://www.youtube.com/*", "https://m.youtube.com/*"],
+      js: ["content/yt-main-bridge.js"],
+      runAt: "document_start",
+      world: "MAIN",
+      persistAcrossSessions: true,
+      allFrames: false,
+    }]);
+    console.debug("[Unbait] yt-main-bridge registered (world: MAIN)");
+  } catch (e) {
+    console.debug("[Unbait] yt-main-bridge registration failed (script-tag fallback will be used):", e?.message);
+  }
+}
+
+_migrationPromise.then(registerYtBridge);
 
 // Increment lifetime statistics
 async function incrementStats(field, amount) {
@@ -121,7 +324,6 @@ function triggerDeclickbait(tabId) {
   if (!tabId) return;
   updateBadge(tabId, "working");
 
-  const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
   chrome.tabs.get(tabId).then((tab) => {
     let isYouTube = false;
     try { isYouTube = YT_HOSTS.includes(new URL(tab.url).hostname); } catch {}
@@ -139,7 +341,7 @@ function triggerDeclickbait(tabId) {
     } else {
       chrome.scripting.executeScript({
         target: { tabId },
-        files: ["content/shared.js", "content/content.js"],
+        files: ["content/shared.js", "content/html-utils.js", "content/content.js"],
       }).then(() => {
         chrome.scripting.insertCSS({ target: { tabId }, files: ["content/content.css"] });
         setTimeout(() => {
@@ -147,6 +349,17 @@ function triggerDeclickbait(tabId) {
         }, CONFIG.AUTO_TRIGGER_DELAY_MS);
       }).catch(() => {});
     }
+  }).catch(() => {});
+}
+
+// Inject the lightweight gist-only script for a one-shot gist injection.
+function injectGistOnly(tabId) {
+  if (!tabId) return;
+  chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["content/shared.js", "content/gist-only.js"],
+  }).then(() => {
+    chrome.scripting.insertCSS({ target: { tabId }, files: ["content/content.css"] });
   }).catch(() => {});
 }
 
@@ -161,24 +374,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === "enable-site") {
-    // Service worker handles site enable to survive popup closing
-    const { hostname, tabId } = message;
+    // Service worker handles site enable to survive popup closing.
+    // mode defaults to "full" for backwards compat with the popup flow.
+    const { hostname, tabId, mode = "full" } = message;
     if (!hostname) return;
-    const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
-    const isYT = YT_HOSTS.includes(hostname);
 
-    chrome.storage.local.get("autoSites").then(async (data) => {
-      const sites = data.autoSites || [];
-      if (!sites.includes(hostname)) {
-        sites.push(hostname);
-        await chrome.storage.local.set({ autoSites: sites });
+    getAutoSites().then(async (sites) => {
+      const idx = sites.findIndex((s) => s.host === hostname);
+      if (idx >= 0) {
+        sites[idx] = { host: hostname, mode };
+      } else {
+        sites.push({ host: hostname, mode });
       }
-      if (isYT) {
-        await chrome.storage.local.set({ youtubeEnabled: true });
-      }
-      // Trigger de-clickbait directly (not via message — that doesn't work within same listener)
-      if (tabId) {
+      await chrome.storage.local.set({ autoSites: sites });
+      if (tabId && mode === "full") {
         triggerDeclickbait(tabId);
+      } else if (tabId && mode === "gist") {
+        injectGistOnly(tabId);
+      }
+    });
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  if (message.action === "set-site-mode") {
+    // Change mode for an existing site, or add it.
+    const { hostname, mode } = message;
+    if (!hostname) return;
+
+    getAutoSites().then(async (sites) => {
+      const idx = sites.findIndex((s) => s.host === hostname);
+      if (mode === "off") {
+        if (idx >= 0) {
+          sites.splice(idx, 1);
+          await chrome.storage.local.set({ autoSites: sites });
+        }
+      } else {
+        if (idx >= 0) sites[idx] = { host: hostname, mode };
+        else sites.push({ host: hostname, mode });
+        await chrome.storage.local.set({ autoSites: sites });
       }
     });
     sendResponse({ ok: true });
@@ -188,15 +422,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "disable-site") {
     const { hostname } = message;
     if (!hostname) return;
-    const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
-    const isYT = YT_HOSTS.includes(hostname);
 
-    chrome.storage.local.get("autoSites").then(async (data) => {
-      const sites = (data.autoSites || []).filter((s) => s !== hostname);
-      await chrome.storage.local.set({ autoSites: sites });
-      if (isYT) {
-        await chrome.storage.local.set({ youtubeEnabled: false });
-      }
+    getAutoSites().then(async (sites) => {
+      const filtered = sites.filter((s) => s.host !== hostname);
+      await chrome.storage.local.set({ autoSites: filtered });
     });
     sendResponse({ ok: true });
     return true;
@@ -304,27 +533,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleSummarizeYouTube(message, tabId);
     return true;
   }
+
+  if (message.action === "detect-youtube-ads") {
+    const tabId = sender.tab?.id;
+    sendResponse({ accepted: true });
+    handleDetectYouTubeAds(message, tabId);
+    return true;
+  }
+
+  // Generic HTTP proxy — lets content scripts route requests through the SW
+  // to bypass iOS Safari's content-script CORS sandbox (which silently returns
+  // text/html + empty body for YouTube API sub-resource requests).
+  if (message.action === "proxy-fetch") {
+    (async () => {
+      try {
+        const resp = await fetch(message.url, {
+          credentials: message.credentials || "include",
+          headers: { Referer: "https://www.youtube.com/", ...( message.headers || {}) },
+        });
+        const body = await resp.text();
+        const contentType = resp.headers.get("content-type") || "";
+        console.debug("[SW] proxy-fetch:", message.url.slice(0, 90),
+          "status:", resp.status, "redirected:", resp.redirected,
+          "ct:", contentType, "bodyLen:", body.length);
+        sendResponse({ ok: resp.ok, status: resp.status, body, contentType });
+      } catch (e) {
+        console.debug("[SW] proxy-fetch error:", String(e.message || e), "url:", message.url.slice(0, 90));
+        sendResponse({ ok: false, status: 0, body: "", error: String(e.message || e) });
+      }
+    })();
+    return true;
+  }
 });
 
-const CONFIG = {
-  CONTEXT_CONCURRENCY: 10,
-  CONTEXT_TIMEOUT_MS: 6000,
-  CONTEXT_MAX_BYTES: 131072,
-  CONTEXT_MAX_CHARS: 800,
-  META_DESC_MAX_CHARS: 300,
-  JSONLD_MAX_CHARS: 600,
-  MIN_PARAGRAPH_LENGTH: 40,
-  PARAGRAPH_MAX_CHARS: 600,
-  MAX_TITLE_LENGTH: 80,
-  GEMINI_BATCH_SIZE: 60,
-  GEMINI_BATCH_DELAY_MS: 15000,
-  GEMINI_MAX_RETRIES: 2,
-  GEMINI_RETRY_BASE_MS: 10000,
-  CLAUDE_MAX_TOKENS: 4096,
-  OPENAI_MAX_TOKENS: 4096,
-  GEMINI_MAX_TOKENS: 8192,
-  AUTO_TRIGGER_DELAY_MS: 500,
-};
 
 // Always On: auto-trigger on page load for configured sites
 // Also: inject content script for cache restore on any previously de-clickbaited site
@@ -336,90 +577,91 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }
   if (changeInfo.status !== "complete" || !tab.url) return;
 
-  try {
-    const hostname = new URL(tab.url).hostname;
+  let hostname;
+  try { hostname = new URL(tab.url).hostname; } catch { return; }
 
-    Promise.all([
-      chrome.storage.local.get("autoSites"),
-      chrome.storage.local.get(["apiKey", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini", "provider"]),
-    ]).then(async ([syncData, localData]) => {
-      const autoSites = syncData.autoSites || [];
-      const provider = localData.provider || "anthropic";
-      const apiKey = localData[`apiKey_${provider}`] || localData.apiKey;
-      const isAlwaysOn = apiKey && autoSites.includes(hostname);
+  (async () => {
+    const localData = await chrome.storage.local.get([
+      "apiKey", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini", "provider",
+    ]);
+    const provider = localData.provider || "anthropic";
+    const apiKey = localData[`apiKey_${provider}`] || localData.apiKey;
+    if (!apiKey) return;
 
-      // Check if there are cached entries for this site's domain
-      let hasCachedEntries = false;
-      if (!isAlwaysOn) {
-        try {
-          const cacheKey = `unbait_cache_${provider}`;
-          const data = await chrome.storage.local.get(cacheKey);
-          const cache = data[cacheKey] || {};
-          hasCachedEntries = Object.keys(cache).some((url) => {
-            try { return new URL(url).hostname === hostname; } catch { return false; }
-          });
-        } catch {
-          // ignore cache check errors
-        }
+    const isYouTube = YT_HOSTS.includes(hostname);
+    const explicitMode = await getSiteMode(hostname);
+
+    // YouTube uses its dedicated youtube.js for "full" mode. Gist-only on
+    // YouTube is not supported in v1 — fall through to "off" for YT + gist.
+    // Sponsor-skip also needs youtube.js on watch pages, independent of mode;
+    // it self-inits on load (no de-clickbait message sent → no title rewriting).
+    if (isYouTube) {
+      const sponsorData = await chrome.storage.local.get("ytSponsorSkip");
+      const sponsorOn = sponsorData.ytSponsorSkip !== false; // default on
+      if (explicitMode === "full" || sponsorOn) {
+        chrome.scripting.executeScript({
+          target: { tabId },
+          files: ["content/shared.js", "content/youtube.js"],
+        }).then(() => {
+          chrome.scripting.insertCSS({ target: { tabId }, files: ["content/content.css"] });
+          if (explicitMode === "full") {
+            setTimeout(() => {
+              chrome.tabs.sendMessage(tabId, { action: "de-clickbait-youtube" }).catch(() => {});
+            }, CONFIG.AUTO_TRIGGER_DELAY_MS);
+          }
+        }).catch(() => {});
       }
+      return;
+    }
 
-      if (!isAlwaysOn && !hasCachedEntries) return;
-
-      // Skip content.js for YouTube — it uses youtube.js (handled separately below)
-      const YT_HOSTS_CHECK = ["www.youtube.com", "youtube.com", "m.youtube.com"];
-      if (YT_HOSTS_CHECK.includes(hostname)) return;
-
-      // Inject content script + CSS
-      // The content script auto-restores cached titles on load
+    // Non-YouTube: full > gist > cache-restore > nothing.
+    if (explicitMode === "full") {
       chrome.scripting.executeScript({
         target: { tabId },
-        files: ["content/shared.js", "content/content.js"],
+        files: ["content/shared.js", "content/html-utils.js", "content/content.js"],
       }).then(() => {
-        chrome.scripting.insertCSS({
-          target: { tabId },
-          files: ["content/content.css"],
-        });
-
-        // Only trigger full de-clickbait for Always On sites
-        if (isAlwaysOn) {
-          setTimeout(() => {
-            chrome.tabs.sendMessage(tabId, { action: "de-clickbait" }).catch(() => {});
-          }, CONFIG.AUTO_TRIGGER_DELAY_MS);
-        }
-      }).catch((e) => console.debug("[Unbait] Auto-inject failed:", e.message));
-    });
-
-    // YouTube support: inject youtube.js if youtubeEnabled OR Always On for YouTube
-    const YT_HOSTS = ["www.youtube.com", "youtube.com", "m.youtube.com"];
-    if (YT_HOSTS.includes(hostname)) {
-      Promise.all([
-        chrome.storage.local.get("youtubeEnabled"),
-        chrome.storage.local.get("autoSites"),
-      ]).then(([ytData, syncData]) => {
-        const autoSites = syncData.autoSites || [];
-        const isYTAlwaysOn = autoSites.some((s) => YT_HOSTS.includes(s));
-        if (ytData.youtubeEnabled || isYTAlwaysOn) {
-          chrome.scripting.executeScript({
-            target: { tabId },
-            files: ["content/shared.js", "content/youtube.js"],
-          }).then(() => {
-            chrome.scripting.insertCSS({
-              target: { tabId },
-              files: ["content/content.css"],
-            });
-            // Auto-trigger if Always On
-            if (isYTAlwaysOn) {
-              setTimeout(() => {
-                chrome.tabs.sendMessage(tabId, { action: "de-clickbait-youtube" }).catch(() => {});
-              }, CONFIG.AUTO_TRIGGER_DELAY_MS);
-            }
-          }).catch(() => {});
-        }
-      });
+        chrome.scripting.insertCSS({ target: { tabId }, files: ["content/content.css"] });
+        setTimeout(() => {
+          chrome.tabs.sendMessage(tabId, { action: "de-clickbait" }).catch(() => {});
+        }, CONFIG.AUTO_TRIGGER_DELAY_MS);
+      }).catch((e) => console.debug("[Unbait] Auto-inject failed:", e?.message));
+      return;
     }
-  } catch {
-    // invalid URL, skip
-  }
+
+    if (explicitMode === "gist") {
+      injectGistOnly(tabId);
+      return;
+    }
+
+    // No explicit mode — Always Gist (handled via registerContentScripts) takes
+    // care of injection on Chrome. As a fallback for browsers that lack
+    // registerContentScripts (older Safari), inject programmatically here.
+    const { enabled: alwaysGist, excluded } = await getAlwaysGist();
+    const supportsRegister = !!chrome.scripting?.registerContentScripts;
+    if (alwaysGist && !supportsRegister && !excluded.includes(hostname)) {
+      injectGistOnly(tabId);
+      return;
+    }
+
+    // Cache restore: if previously de-clickbaited this site, inject content.js
+    // so cached titles are restored on load (no API call).
+    try {
+      const cacheKey = `unbait_cache_${provider}`;
+      const data = await chrome.storage.local.get(cacheKey);
+      const cache = data[cacheKey] || {};
+      const hasCached = Object.keys(cache).some((url) => {
+        try { return new URL(url).hostname === hostname; } catch { return false; }
+      });
+      if (hasCached) {
+        chrome.scripting.executeScript({
+          target: { tabId },
+          files: ["content/shared.js", "content/html-utils.js", "content/content.js"],
+        }).then(() => {
+          chrome.scripting.insertCSS({ target: { tabId }, files: ["content/content.css"] });
+        }).catch(() => {});
+      }
+    } catch { /* ignore cache check errors */ }
+  })().catch(() => {});
 });
 
 async function handleRewrite(headlines, tabId, mode = "news") {
@@ -495,14 +737,23 @@ async function enrichWithContext(headlines) {
   const results = [];
 
   for (let i = 0; i < headlines.length; i += CONFIG.CONTEXT_CONCURRENCY) {
+    if (i > 0) {
+      await new Promise((r) =>
+        setTimeout(r, CONFIG.CONTEXT_BATCH_DELAY_MS + Math.random() * 300));
+    }
     const batch = headlines.slice(i, i + CONFIG.CONTEXT_CONCURRENCY);
     const promises = batch.map(async (h) => {
       try {
+        if (ctxHostBlocked(h.url)) return { ...h, context: "" };
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), CONFIG.CONTEXT_TIMEOUT_MS);
-        const resp = await fetch(h.url, { signal: controller.signal, credentials: "omit", referrer: "" });
+        const resp = await fetch(h.url, { signal: controller.signal, credentials: "include", referrer: "" });
         clearTimeout(timeoutId);
 
+        if (resp.status === 403 || resp.status === 429 || resp.status === 503) {
+          ctxTripHostBlock(h.url, resp.status);
+          return { ...h, context: "" };
+        }
         if (!resp.ok) return { ...h, context: "" };
 
         const contentType = resp.headers.get("content-type") || "";
@@ -524,7 +775,7 @@ async function enrichWithContext(headlines) {
         }
         reader.cancel();
 
-        const context = extractContext(html);
+        const context = HtmlExtract.extractContext(html);
         return { ...h, context };
       } catch {
         return { ...h, context: "" };
@@ -537,134 +788,16 @@ async function enrichWithContext(headlines) {
 }
 
 /**
- * Decode common HTML entities.
- */
-function decodeEntities(str) {
-  return str
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/**
- * Extract meta description from HTML <head>.
- */
-function extractMetaDescription(html) {
-  const ogMatch = html.match(
-    /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i
-  );
-  const ogMatch2 = html.match(
-    /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i
-  );
-  const metaMatch = html.match(
-    /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i
-  );
-  const metaMatch2 = html.match(
-    /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i
-  );
-
-  return (ogMatch?.[1] || ogMatch2?.[1] || metaMatch?.[1] || metaMatch2?.[1] || "").substring(0, CONFIG.META_DESC_MAX_CHARS);
-}
-
-/**
- * Extract JSON-LD structured data (NewsArticle, Article, BlogPosting).
- * Most modern sites (including Next.js/React) embed this in <head>.
- */
-function extractJsonLdDescription(html) {
-  const ldRegex = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-  let match;
-  while ((match = ldRegex.exec(html)) !== null) {
-    try {
-      let data = JSON.parse(match[1]);
-      // Handle @graph arrays (some sites wrap multiple schemas)
-      if (data["@graph"]) data = data["@graph"];
-      const items = Array.isArray(data) ? data : [data];
-      for (const item of items) {
-        const type = (item["@type"] || "").toLowerCase();
-        if (type.includes("article") || type.includes("newsarticle") || type.includes("blogposting") || type.includes("reportage")) {
-          // Prefer articleBody (full text), fall back to description
-          const body = item.articleBody || "";
-          const desc = item.description || "";
-          const text = body.length > desc.length ? body : desc;
-          if (text) return decodeEntities(text).substring(0, CONFIG.JSONLD_MAX_CHARS);
-        }
-      }
-    } catch {
-      // invalid JSON, try next block
-    }
-  }
-  return "";
-}
-
-/**
- * Extract rich context from HTML using multiple strategies:
- * 1. JSON-LD structured data (most reliable, used by modern sites)
- * 2. Meta description (og:description)
- * 3. Article body <p> tags (fallback for traditional CMS sites)
- * Returns up to CONFIG.CONTEXT_MAX_CHARS characters of combined context.
- */
-function extractContext(html) {
-  // Strategy 1: JSON-LD (best source — structured, contains specific names)
-  const jsonLdDesc = extractJsonLdDescription(html);
-
-  // Strategy 2: meta description
-  const metaDesc = extractMetaDescription(html);
-
-  // Strategy 3: article body <p> tags
-  let bodyText = "";
-  // Strip noise blocks before paragraph extraction
-  let cleaned = html
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<nav[\s\S]*?<\/nav>/gi, "")
-    .replace(/<header[\s\S]*?<\/header>/gi, "")
-    .replace(/<footer[\s\S]*?<\/footer>/gi, "")
-    .replace(/<aside[\s\S]*?<\/aside>/gi, "");
-
-  // Try to find article container (multiple strategies)
-  const articleMatch = cleaned.match(
-    /<(?:article|div)[^>]*(?:class|id)=["'][^"']*(?:article|story|post|entry|content)[-_]?(?:body|content|text|area)[^"']*["'][^>]*>([\s\S]*)/i
-  ) || cleaned.match(
-    /<article[^>]*>([\s\S]*)/i  // fallback: any <article> tag (bright.nl uses <article role="main">)
-  );
-  const region = articleMatch ? articleMatch[0] : cleaned;
-
-  const paragraphs = [];
-  let totalLen = 0;
-  const pRegex = /<p[^>]*>([\s\S]*?)<\/p>/gi;
-  let m;
-  while ((m = pRegex.exec(region)) !== null && totalLen < CONFIG.PARAGRAPH_MAX_CHARS) {
-    const text = decodeEntities(m[1].replace(/<[^>]+>/g, ""));
-    if (text.length < CONFIG.MIN_PARAGRAPH_LENGTH) continue;
-    paragraphs.push(text);
-    totalLen += text.length;
-  }
-  bodyText = paragraphs.join(" ");
-
-  // Combine: pick the richest context available
-  const best = jsonLdDesc || bodyText || "";
-  const extra = metaDesc && metaDesc !== best ? metaDesc : "";
-
-  if (best && extra) {
-    return `${best} | ${extra}`.substring(0, CONFIG.CONTEXT_MAX_CHARS);
-  }
-  return (best || extra || "").substring(0, CONFIG.CONTEXT_MAX_CHARS);
-}
-
-/**
  * Build the shared prompt parts used by all providers.
  */
 function buildPrompts(headlines, mode = "news", lang = "auto") {
+  // JSON.stringify ensures quotes and special chars in headline text / context
+  // don't break the prompt format and can't inject prompt instructions.
   const headlineList = headlines
     .map((h) => {
-      let line = `- id: "${h.id}" | kop: "${h.text}"`;
+      let line = `- id: ${JSON.stringify(h.id)} | kop: ${JSON.stringify(h.text)}`;
       if (h.context) {
-        line += ` | context: "${h.context}"`;
+        line += ` | context: ${JSON.stringify(h.context)}`;
       }
       return line;
     })
@@ -839,15 +972,9 @@ async function callClaudeStreaming(apiKey, headlines, tabId, mode = "news", stre
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      if (response.status === 401) {
-        return { error: "Ongeldige API key. Controleer je key in de instellingen." };
-      }
-      if (response.status === 429) {
-        return { error: "Rate limit bereikt. Probeer het over een minuut opnieuw." };
-      }
-      return {
-        error: `API fout (${response.status}): ${err.error?.message || "Onbekende fout"}`,
-      };
+      if (response.status === 401) return { error: "Invalid API key. Check your key in settings." };
+      if (response.status === 429) return { error: "Rate limit reached. Try again in a minute." };
+      return { error: `API error (${response.status}): ${err.error?.message || "Unknown error"}` };
     }
 
     const extractDelta = (event) =>
@@ -1255,8 +1382,8 @@ RULES:
 - Keep it short: max 150 words total.${titleOnlyExtra}`;
 
   const userPrompt = content
-    ? `Title: "${title}"\nContent: "${content.substring(0, 10000)}"\n\nGive the gist.`
-    : `Title: "${title}"\n\nGive the gist.`;
+    ? `Title: ${JSON.stringify(title)}\nContent: ${JSON.stringify(content.substring(0, 10000))}\n\nGive the gist.`
+    : `Title: ${JSON.stringify(title)}\n\nGive the gist.`;
 
   return { systemPrompt, userPrompt };
 }
@@ -1312,11 +1439,15 @@ function sendGistStreamChunk(tabId, url, text) {
 
 async function _fetchHtml(url) {
   try {
+    if (ctxHostBlocked(url)) {
+      console.debug(`[Unbait] _fetchHtml: ${url} → host in bot-block cooldown, skipping`);
+      return "";
+    }
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CONFIG.CONTEXT_TIMEOUT_MS);
     let resp;
     try {
-      resp = await fetch(url, { signal: controller.signal, credentials: "omit", referrer: "" });
+      resp = await fetch(url, { signal: controller.signal, credentials: "include", referrer: "" });
     } catch (fetchErr) {
       clearTimeout(timeoutId);
       // CORS/permission failures throw a generic TypeError. Distinguish by
@@ -1332,6 +1463,10 @@ async function _fetchHtml(url) {
       throw fetchErr;
     }
     clearTimeout(timeoutId);
+    if (resp.status === 403 || resp.status === 429 || resp.status === 503) {
+      ctxTripHostBlock(url, resp.status);
+      return "";
+    }
     if (!resp.ok) {
       console.debug(`[Unbait] _fetchHtml: ${url} → HTTP ${resp.status}`);
       return "";
@@ -1383,12 +1518,31 @@ function _findHopTarget(html, baseUrl) {
       return hRoot !== baseRoot;
     } catch { return false; }
   };
+  // Reject private/local network targets — a malicious page could embed a hop
+  // URL pointing to a local device (router, NAS) that only the user's browser
+  // can reach. Checking this here keeps the service worker from acting as a
+  // proxy for intranet requests.
+  const isLocalUrl = (absolute) => {
+    try {
+      const { hostname } = new URL(absolute);
+      if (hostname === "localhost" || hostname === "::1") return true;
+      if (hostname.endsWith(".local")) return true;
+      if (/^127\./.test(hostname)) return true;
+      if (/^10\./.test(hostname)) return true;
+      if (/^192\.168\./.test(hostname)) return true;
+      if (/^172\.(1[6-9]|2[0-9]|3[01])\./.test(hostname)) return true;
+      if (/^169\.254\./.test(hostname)) return true;
+    } catch { /* ignore */ }
+    return false;
+  };
+
+  const isValidHop = (abs) => abs && isDifferentSite(abs) && !isLocalUrl(abs) && /^https?:\/\//i.test(abs);
 
   // Pattern 1: meta refresh with URL
   const meta = html.match(/<meta[^>]+http-equiv=["']?refresh["']?[^>]+content=["'][^"']*url=([^"'>\s]+)/i);
   if (meta) {
     const abs = resolve(meta[1]);
-    if (abs && isDifferentSite(abs) && /^https?:/i.test(abs)) {
+    if (isValidHop(abs)) {
       console.debug(`[Unbait] hop p1 (meta-refresh): ${abs}`);
       return abs;
     }
@@ -1399,7 +1553,7 @@ function _findHopTarget(html, baseUrl) {
     || html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i);
   if (canonical) {
     const abs = resolve(canonical[1]);
-    if (abs && isDifferentSite(abs) && /^https?:/i.test(abs)) {
+    if (isValidHop(abs)) {
       console.debug(`[Unbait] hop p2 (canonical): ${abs}`);
       return abs;
     }
@@ -1412,7 +1566,7 @@ function _findHopTarget(html, baseUrl) {
     const text = m[2].replace(/<[^>]+>/g, "").trim();
     if (!continueRe.test(text)) continue;
     const abs = resolve(m[1]);
-    if (abs && isDifferentSite(abs) && /^https?:/i.test(abs)) {
+    if (isValidHop(abs)) {
       console.debug(`[Unbait] hop p3 (continue-link "${text.slice(0, 40)}"): ${abs}`);
       return abs;
     }
@@ -1428,7 +1582,7 @@ function _findHopTarget(html, baseUrl) {
       .replace(/\\\//g, "/")
       .replace(/&amp;/g, "&");
     const abs = resolve(candidate);
-    if (abs && isDifferentSite(abs) && /^https?:\/\//i.test(abs)) {
+    if (isValidHop(abs)) {
       console.debug(`[Unbait] hop p4 (inline JSON url field): ${abs}`);
       return abs;
     }
@@ -1442,7 +1596,7 @@ function _findHopTarget(html, baseUrl) {
     try {
       const decoded = decodeURIComponent(qm[1]);
       const abs = resolve(decoded);
-      if (abs && isDifferentSite(abs) && /^https?:\/\//i.test(abs)) {
+      if (isValidHop(abs)) {
         console.debug(`[Unbait] hop p5 (?url= param): ${abs}`);
         return abs;
       }
@@ -1458,10 +1612,11 @@ async function fetchArticleContext(url, hopCount = 0) {
     console.debug("[Unbait] fetchArticleContext: empty html for", url);
     return "";
   }
-  const context = extractContext(html);
+  const context = HtmlExtract.extractContext(html);
   console.debug(`[Unbait] fetchArticleContext: ${url} → ${context.length} chars (hop=${hopCount}, htmlSize=${html.length})`);
 
   // Thin page → try one hop to the real article.
+  // Capped at 1 hop to prevent open-redirect chains from untrusted pages.
   if (context.length < MIN_CONTEXT_CHARS && hopCount < 1) {
     const hopUrl = _findHopTarget(html, url);
     if (hopUrl) {
@@ -1596,4 +1751,163 @@ async function readSSEStreamText(response, extractDelta, tabId, url) {
     }
   }
   return { summary: fullText };
+}
+
+// ---------------------------------------------------------------------------
+// YouTube: in-video sponsor / self-promo detection
+// Uses the timestamped transcript to locate creator-read ad segments that
+// YouTube Premium does NOT block, and returns start/end times to the content
+// script so it can offer to skip them.
+// ---------------------------------------------------------------------------
+
+const SPONSOR_CONFIG = {
+  CLAUDE_MAX_TOKENS: 1024,
+  OPENAI_MAX_TOKENS: 1024,
+  GEMINI_MAX_TOKENS: 2048,
+};
+
+function buildSponsorPrompt(title, transcript) {
+  const systemPrompt = `You analyze a YouTube video transcript to locate in-video advertising segments that the creator reads out themselves. These are not blocked by YouTube Premium because they are part of the content.
+
+DETECT ONLY these two categories:
+- "sponsor": a paid sponsorship read — e.g. "this video is sponsored by…", "thanks to X for sponsoring", discount/promo codes, an ad read for an external product or service.
+- "selfpromo": the creator promoting their OWN paid offerings — merch, courses, Patreon/membership, their own app, paid newsletter.
+
+DO NOT mark: like/subscribe/notification reminders, intros, outros, recaps, normal content, or brief brand mentions that are part of the actual topic of the video.
+
+The transcript contains timestamp markers like [1:23] meaning minutes:seconds. Use them to determine each segment's start and end as accurately as possible.
+
+Return ONLY a JSON array, no other text:
+[{"start": <seconds>, "end": <seconds>, "category": "sponsor"|"selfpromo", "label": "<short description, max 5 words>"}]
+
+Rules:
+- "start" and "end" are integers in SECONDS (convert from [m:ss], e.g. [2:05] = 125).
+- "end" MUST be greater than "start".
+- If there are no such segments, return [].
+- Be precise about boundaries; prefer slightly tighter segments over cutting into real content.`;
+
+  const userPrompt = `Title: ${JSON.stringify(title)}
+Transcript (with [m:ss] markers):
+${transcript}
+
+Return the JSON array of sponsor/self-promo segments.`;
+
+  return { systemPrompt, userPrompt };
+}
+
+function parseSegments(text) {
+  let jsonStr = (text || "").replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch {
+    // Salvage: grab the first [...] block from surrounding prose.
+    const m = jsonStr.match(/\[[\s\S]*\]/);
+    if (!m) return [];
+    try { parsed = JSON.parse(m[0]); } catch { return []; }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((s) => ({
+      start: Math.max(0, Math.floor(Number(s.start))),
+      end: Math.floor(Number(s.end)),
+      category: s.category === "selfpromo" ? "selfpromo" : "sponsor",
+      label: typeof s.label === "string" ? s.label.slice(0, 60) : "",
+    }))
+    .filter((s) => Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start)
+    .sort((a, b) => a.start - b.start);
+}
+
+async function handleDetectYouTubeAds(message, tabId) {
+  try {
+    const { url, title, videoId, transcript } = message;
+    console.log(`[Unbait SW] handleDetectYouTubeAds: videoId=${videoId} transcript=${transcript ? transcript.length + "c" : "null"}`);
+
+    // Transcript is fetched by the content script (same-origin cookies available there;
+    // SW-side approaches fail on iOS due to sandbox restrictions).
+    if (!transcript) {
+      sendAdsResult(tabId, url, { error: "no_transcript" });
+      return;
+    }
+
+    const data = await chrome.storage.local.get(["provider", "apiKey_anthropic", "apiKey_openai", "apiKey_gemini", "apiKey"]);
+    const provider = data.provider || "anthropic";
+    let apiKey = data[`apiKey_${provider}`];
+    if (!apiKey && provider === "anthropic" && data.apiKey) apiKey = data.apiKey;
+    if (!apiKey) { sendAdsResult(tabId, url, { error: "No API key set." }); return; }
+
+    const { systemPrompt, userPrompt } = buildSponsorPrompt(title, transcript);
+    const result = await callLLMForText(provider, apiKey, systemPrompt, userPrompt, SPONSOR_CONFIG);
+    if (result.error) { sendAdsResult(tabId, url, { error: result.error }); return; }
+    sendAdsResult(tabId, url, { segments: parseSegments(result.text) });
+  } catch (err) {
+    sendAdsResult(tabId, message.url, { error: err.message });
+  }
+}
+
+function sendAdsResult(tabId, url, result) {
+  if (!tabId) return;
+  chrome.tabs.sendMessage(tabId, { action: "yt-ads-result", url, ...result }).catch(() => {});
+}
+
+async function _llmError(response, name) {
+  const err = await response.json().catch(() => ({}));
+  if (response.status === 401) return `Invalid ${name} API key.`;
+  if (response.status === 429) return "Rate limit reached. Try again later.";
+  return `${name} error (${response.status}): ${err?.error?.message || "Unknown error"}`;
+}
+
+// Single-shot, non-streaming text completion across providers.
+async function callLLMForText(provider, apiKey, systemPrompt, userPrompt, cfg) {
+  try {
+    if (provider === "openai") {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-4o-mini", stream: false, temperature: 0.2,
+          messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+        }),
+      });
+      if (!response.ok) return { error: await _llmError(response, "OpenAI") };
+      const data = await response.json();
+      return { text: data.choices?.[0]?.message?.content || "" };
+    }
+    if (provider === "gemini") {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+        {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: systemPrompt }] },
+            contents: [{ parts: [{ text: userPrompt }] }],
+            generationConfig: { temperature: 0.2, maxOutputTokens: cfg.GEMINI_MAX_TOKENS, responseMimeType: "application/json" },
+          }),
+        }
+      );
+      if (!response.ok) return { error: await _llmError(response, "Gemini") };
+      const data = await response.json();
+      const parts = data.candidates?.[0]?.content?.parts || [];
+      let text = "";
+      for (const part of parts) { if (part.text) text = part.text; }
+      return { text };
+    }
+    // anthropic (default)
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey, "anthropic-version": "2023-06-01",
+        "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001", max_tokens: cfg.CLAUDE_MAX_TOKENS, stream: false,
+        system: systemPrompt, messages: [{ role: "user", content: userPrompt }],
+      }),
+    });
+    if (!response.ok) return { error: await _llmError(response, "Claude") };
+    const data = await response.json();
+    return { text: (data.content || []).map((b) => b?.text || "").join("") };
+  } catch (err) {
+    return { error: err.message };
+  }
 }
