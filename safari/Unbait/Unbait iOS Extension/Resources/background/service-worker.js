@@ -597,14 +597,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     const isYouTube = YT_HOSTS.includes(hostname);
     const explicitMode = await getSiteMode(hostname);
 
-    // YouTube uses its dedicated youtube.js for "full" mode. Gist-only on
-    // YouTube is not supported in v1 — fall through to "off" for YT + gist.
-    // Sponsor-skip also needs youtube.js on watch pages, independent of mode;
-    // it self-inits on load (no de-clickbait message sent → no title rewriting).
+    // YouTube uses its dedicated youtube.js for "full" mode. Sponsor-skip and
+    // the watch-page G-icon (gist of the playing video) also need youtube.js,
+    // unless YouTube is explicitly "off"; they self-init on load (no
+    // de-clickbait message sent → no title rewriting).
     if (isYouTube) {
       const sponsorData = await chrome.storage.local.get("ytSponsorSkip");
       const sponsorOn = sponsorData.ytSponsorSkip !== false; // default on
-      if (explicitMode === "full" || sponsorOn) {
+      if (explicitMode === "full" || sponsorOn || explicitMode !== "off") {
         chrome.scripting.executeScript({
           target: { tabId },
           files: ["content/shared.js", "content/youtube.js"],

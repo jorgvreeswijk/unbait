@@ -51,7 +51,10 @@ document.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
     const url = gIcon.dataset.gistUrl;
-    const title = gIcon.dataset.gistTitle;
+    // Watch-page title can change after SPA navigation; read it at click time.
+    const title = gIcon.hasAttribute("data-gist-watch")
+      ? (getWatchTitleText(gIcon.parentElement) || gIcon.dataset.gistTitle)
+      : gIcon.dataset.gistTitle;
     const videoId = gIcon.dataset.gistVideoId;
     if (url && title && videoId) handleGistYTClick(e, url, title, videoId, gIcon);
     return;
@@ -210,6 +213,7 @@ window.addEventListener("popstate", () => {
 window.addEventListener("yt-navigate-finish", () => {
   _state.applied.clear();
   setTimeout(() => initSponsorSkip(), 800);
+  scheduleWatchGistIcon();
   setTimeout(() => {
     if (!_state.isProcessing) {
       restoreCachedTitles();
@@ -257,6 +261,7 @@ setTimeout(() => {
 
 // Sponsor-skip self-init on load (watch pages only; gated by setting inside)
 setTimeout(() => initSponsorSkip(), 800);
+scheduleWatchGistIcon();
 
 // Mobile YouTube (and any SPA nav that doesn't fire yt-navigate-finish) is
 // caught by polling the URL. initSponsorSkip() dedupes by videoId, so calling
@@ -266,8 +271,76 @@ setInterval(() => {
   if (location.href !== _sponsorLastHref) {
     _sponsorLastHref = location.href;
     setTimeout(() => initSponsorSkip(), 600);
+    scheduleWatchGistIcon();
   }
 }, 1500);
+
+// ---------------------------------------------------------------------------
+// Watch page: G-icon next to the title of the video being played
+// ---------------------------------------------------------------------------
+
+const YT_WATCH_TITLE_SELECTORS = [
+  "ytd-watch-metadata #title h1",                // Desktop (2024+ layout)
+  "ytd-watch-metadata h1",
+  "h1.title.ytd-video-primary-info-renderer",    // Desktop (legacy)
+  ".slim-video-information-title",               // Mobile (m.youtube.com)
+  ".slim-video-metadata-title",
+];
+
+function getWatchTitleText(titleEl) {
+  if (!titleEl) return "";
+  const clone = titleEl.cloneNode(true);
+  clone.querySelectorAll(".gist-icon, .unbait-icon").forEach((n) => n.remove());
+  return clone.textContent.replace(/\s+/g, " ").trim();
+}
+
+function findWatchTitleElement() {
+  for (const sel of YT_WATCH_TITLE_SELECTORS) {
+    for (const el of document.querySelectorAll(sel)) {
+      // Skip hidden copies (YouTube keeps stale metadata nodes around)
+      if (el.offsetParent !== null && getWatchTitleText(el)) return el;
+    }
+  }
+  return null;
+}
+
+function injectWatchGistIcon() {
+  if (!Unbait.gistEnabled) return;
+  const existing = [...document.querySelectorAll(".gist-icon[data-gist-watch]")];
+  const videoId = window.location.pathname === "/watch" ? extractVideoId(window.location.href) : null;
+  const titleEl = videoId ? findWatchTitleElement() : null;
+
+  let keep = null;
+  for (const icon of existing) {
+    if (!keep && titleEl && icon.parentElement === titleEl && icon.dataset.gistVideoId === videoId) {
+      keep = icon;
+    } else {
+      icon.remove();
+    }
+  }
+  if (keep || !titleEl) return;
+
+  const gIcon = document.createElement("span");
+  gIcon.className = "gist-icon";
+  gIcon.title = "Get the gist of this video";
+  gIcon.setAttribute("role", "button");
+  gIcon.setAttribute("tabindex", "0");
+  gIcon.setAttribute("aria-label", "Show summary of this video");
+  gIcon.setAttribute("data-gist-watch", "");
+  gIcon.dataset.gistUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  gIcon.dataset.gistTitle = getWatchTitleText(titleEl);
+  gIcon.dataset.gistVideoId = videoId;
+  titleEl.appendChild(gIcon);
+}
+
+// The title renders late (and is re-rendered after SPA navigation), so retry a few times.
+var _watchGistTimers = []; // var: scheduleWatchGistIcon() is called above this line
+function scheduleWatchGistIcon() {
+  _watchGistTimers.forEach(clearTimeout);
+  _watchGistTimers = [800, 2000, 4000, 8000].map((ms) =>
+    setTimeout(() => { try { injectWatchGistIcon(); } catch { /* ignore */ } }, ms)
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Global state

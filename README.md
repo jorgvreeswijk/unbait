@@ -16,7 +16,7 @@ Unbait sends article metadata (headline, description, URL) to the AI provider of
 - **Always On mode** -- automatically de-clickbait your favorite sites on every visit
 - **Multi-provider support** -- choose between Anthropic Claude (recommended), OpenAI GPT, or Google Gemini
 - **YouTube support (Beta)** -- rewrite video titles, replace thumbnails with neutral frames, and use the transcript depth slider to control how deep the AI analyzes video content
-- **Gist summaries** -- click any headline for an instant AI verdict: read, optional, or skip
+- **Gist summaries** -- click any headline for an instant AI verdict: read, optional, or skip, including the YouTube video you're watching
 - **Language setting** -- get titles and summaries in your preferred language
 - **Toggle original titles** -- click any rewritten headline to see the original
 - **Per-provider caching** -- results are cached so you don't burn API credits on repeat visits
