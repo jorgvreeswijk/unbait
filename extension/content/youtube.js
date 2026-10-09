@@ -282,6 +282,10 @@ setInterval(() => {
 const YT_WATCH_TITLE_SELECTORS = [
   "ytd-watch-metadata #title h1",                // Desktop (2024+ layout)
   "ytd-watch-metadata h1",
+  "#above-the-fold #title h1",
+  "#above-the-fold h1",
+  "ytd-watch-flexy #title h1",
+  "#primary h1",
   "h1.title.ytd-video-primary-info-renderer",    // Desktop (legacy)
   ".slim-video-information-title",               // Mobile (m.youtube.com)
   ".slim-video-metadata-title",
@@ -295,13 +299,16 @@ function getWatchTitleText(titleEl) {
 }
 
 function findWatchTitleElement() {
+  let fallback = null;
   for (const sel of YT_WATCH_TITLE_SELECTORS) {
     for (const el of document.querySelectorAll(sel)) {
-      // Skip hidden copies (YouTube keeps stale metadata nodes around)
-      if (el.offsetParent !== null && getWatchTitleText(el)) return el;
+      if (!getWatchTitleText(el)) continue;
+      // Prefer visible nodes (YouTube keeps stale hidden metadata around)
+      if (el.getClientRects().length > 0) return el;
+      fallback = fallback || el;
     }
   }
-  return null;
+  return fallback;
 }
 
 function injectWatchGistIcon() {
@@ -333,13 +340,26 @@ function injectWatchGistIcon() {
   titleEl.appendChild(gIcon);
 }
 
-// The title renders late (and is re-rendered after SPA navigation), so retry a few times.
-var _watchGistTimers = []; // var: scheduleWatchGistIcon() is called above this line
+// The title renders late and YouTube re-renders it (dropping our icon), so
+// keep a debounced observer on watch pages that re-ensures the icon.
+// var: scheduleWatchGistIcon() is called above these lines.
+var _watchGistTimer = null;
+var _watchGistObserver = null;
 function scheduleWatchGistIcon() {
-  _watchGistTimers.forEach(clearTimeout);
-  _watchGistTimers = [800, 2000, 4000, 8000].map((ms) =>
-    setTimeout(() => { try { injectWatchGistIcon(); } catch { /* ignore */ } }, ms)
-  );
+  if (_watchGistTimer) clearTimeout(_watchGistTimer);
+  _watchGistTimer = setTimeout(() => {
+    _watchGistTimer = null;
+    try { injectWatchGistIcon(); } catch (e) { console.debug("[Unbait YT] watch G-icon failed:", e?.message); }
+  }, 400);
+  if (!_watchGistObserver && document.body) {
+    _watchGistObserver = new MutationObserver(() => {
+      if (window.location.pathname !== "/watch") return;
+      const icon = document.querySelector(".gist-icon[data-gist-watch]");
+      if (icon && icon.dataset.gistVideoId === extractVideoId(window.location.href)) return;
+      scheduleWatchGistIcon();
+    });
+    _watchGistObserver.observe(document.body, { childList: true, subtree: true });
+  }
 }
 
 // ---------------------------------------------------------------------------
