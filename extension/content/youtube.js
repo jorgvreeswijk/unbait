@@ -341,12 +341,14 @@ function injectWatchGistIcon() {
 }
 
 // The title renders late and YouTube re-renders it (dropping our icon), so
-// keep a debounced observer on watch pages that re-ensures the icon.
-// var: scheduleWatchGistIcon() is called above these lines.
-var _watchGistTimer = null;
-var _watchGistObserver = null;
+// keep an observer on watch pages that re-ensures the icon. Throttled, not
+// debounced: YouTube mutates the DOM constantly while a video plays, which
+// would starve a debounce timer forever.
+// var (no initializer): scheduleWatchGistIcon() is called above these lines.
+var _watchGistTimer;
+var _watchGistObserver;
 function scheduleWatchGistIcon() {
-  if (_watchGistTimer) clearTimeout(_watchGistTimer);
+  if (_watchGistTimer) return;
   _watchGistTimer = setTimeout(() => {
     _watchGistTimer = null;
     try { injectWatchGistIcon(); } catch (e) { console.debug("[Unbait YT] watch G-icon failed:", e?.message); }
@@ -1704,9 +1706,14 @@ function startObserving() {
   };
 
   // MutationObserver for new DOM elements (YouTube SPA navigation)
+  // Throttled, not debounced: while a video plays YouTube mutates the DOM
+  // continuously, which would keep resetting a debounce timer forever.
   _state.observer = new MutationObserver(() => {
-    if (_state.observerDebounce) clearTimeout(_state.observerDebounce);
-    _state.observerDebounce = setTimeout(processNewTitles, YT_CONFIG.OBSERVER_DEBOUNCE_MS);
+    if (_state.observerDebounce) return;
+    _state.observerDebounce = setTimeout(() => {
+      _state.observerDebounce = null;
+      processNewTitles();
+    }, YT_CONFIG.OBSERVER_DEBOUNCE_MS);
   });
 
   _state.observer.observe(document.body, { childList: true, subtree: true });
