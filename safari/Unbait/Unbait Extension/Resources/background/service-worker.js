@@ -27,10 +27,16 @@ const CONFIG = {
   GEMINI_BATCH_DELAY_MS: 15000,
   GEMINI_MAX_RETRIES: 2,
   GEMINI_RETRY_BASE_MS: 10000,
-  CLAUDE_MAX_TOKENS: 4096,
+  CLAUDE_MAX_TOKENS: 6144,
   OPENAI_MAX_TOKENS: 4096,
   GEMINI_MAX_TOKENS: 8192,
   AUTO_TRIGGER_DELAY_MS: 500,
+};
+
+const MODELS = {
+  anthropic: "claude-haiku-5-5",
+  openai: "gpt-6-luna",
+  gemini: "gemini-3.8-flash",
 };
 
 // Bot-block circuit breaker, per host: sites behind Akamai/Cloudflare flag
@@ -962,7 +968,8 @@ async function callClaudeStreaming(apiKey, headlines, tabId, mode = "news", stre
         "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
+        model: MODELS.anthropic,
+        output_config: { effort: "low" },
         max_tokens: CONFIG.CLAUDE_MAX_TOKENS,
         stream: true,
         system: systemPrompt,
@@ -1009,7 +1016,8 @@ async function callClaudeBatched(apiKey, headlines, tabId, mode = "news", stream
           "anthropic-dangerous-direct-browser-access": "true",
         },
         body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
+          model: MODELS.anthropic,
+          output_config: { effort: "low" },
           max_tokens: CONFIG.CLAUDE_MAX_TOKENS,
           stream: false,
           system: systemPrompt,
@@ -1106,7 +1114,7 @@ function parseAndSendResults(text, tabId, streamAction = "stream-result") {
 }
 
 /**
- * Call OpenAI API (GPT-4o mini) with streaming.
+ * Call OpenAI API (GPT-6 Luna) with streaming.
  */
 async function callOpenAI(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result", lang = "auto") {
   // Safari: batch mode (non-streaming) in small batches to avoid SW timeout
@@ -1125,13 +1133,13 @@ async function callOpenAI(apiKey, headlines, tabId, mode = "news", streamAction 
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: MODELS.openai,
+        reasoning_effort: "none",
         stream: true,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.3,
       }),
     });
 
@@ -1176,13 +1184,13 @@ async function callOpenAIBatched(apiKey, headlines, tabId, mode = "news", stream
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-4o-mini",
+          model: MODELS.openai,
+          reasoning_effort: "none",
           stream: false,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
-          temperature: 0.3,
         }),
       });
 
@@ -1215,7 +1223,7 @@ async function callOpenAIBatched(apiKey, headlines, tabId, mode = "news", stream
  */
 async function callGeminiSingleRequest(apiKey, systemPrompt, userPrompt) {
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${MODELS.gemini}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1223,7 +1231,7 @@ async function callGeminiSingleRequest(apiKey, systemPrompt, userPrompt) {
         system_instruction: { parts: [{ text: systemPrompt }] },
         contents: [{ parts: [{ text: userPrompt }] }],
         generationConfig: {
-          temperature: 0.3,
+          thinkingConfig: { thinkingLevel: "low" },
           maxOutputTokens: CONFIG.GEMINI_MAX_TOKENS,
           responseMimeType: "application/json",
         },
@@ -1241,7 +1249,7 @@ async function callGeminiSingleRequest(apiKey, systemPrompt, userPrompt) {
 }
 
 /**
- * Call Google Gemini API (Gemini 2.5 Flash).
+ * Call Google Gemini API (Gemini 3.8 Flash).
  * Splits headlines into small batches to stay within free tier token limits.
  */
 async function callGemini(apiKey, headlines, tabId, mode = "news", streamAction = "stream-result", lang = "auto") {
@@ -1293,7 +1301,7 @@ async function callGemini(apiKey, headlines, tabId, mode = "news", streamAction 
           continue;
         }
 
-        // Gemini 2.5 Flash may return multiple parts (thinking + response)
+        // Gemini may return multiple parts (thinking + response)
         // Find the last text part, which contains the actual JSON output
         const parts = data.candidates?.[0]?.content?.parts || [];
         let text = "";
@@ -1330,7 +1338,7 @@ async function callGemini(apiKey, headlines, tabId, mode = "news", streamAction 
 // ---------------------------------------------------------------------------
 
 const GIST_CONFIG = {
-  CLAUDE_MAX_TOKENS: 1024,
+  CLAUDE_MAX_TOKENS: 1536,
   OPENAI_MAX_TOKENS: 1024,
   GEMINI_MAX_TOKENS: 2048,
 };
@@ -1649,7 +1657,7 @@ async function callClaudeForSummary(apiKey, systemPrompt, userPrompt, tabId, url
         "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001", max_tokens: GIST_CONFIG.CLAUDE_MAX_TOKENS,
+        model: MODELS.anthropic, output_config: { effort: "low" }, max_tokens: GIST_CONFIG.CLAUDE_MAX_TOKENS,
         // Safari: non-streaming — SSE via ReadableStream is unreliable in SW
         stream: !IS_SAFARI,
         system: systemPrompt, messages: [{ role: "user", content: userPrompt }],
@@ -1680,7 +1688,7 @@ async function callOpenAIForSummary(apiKey, systemPrompt, userPrompt, tabId, url
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         // Safari: non-streaming — SSE via ReadableStream is unreliable in SW
-        model: "gpt-4o-mini", stream: !IS_SAFARI, temperature: 0.3,
+        model: MODELS.openai, reasoning_effort: "none", stream: !IS_SAFARI,
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
       }),
     });
@@ -1705,13 +1713,13 @@ async function callOpenAIForSummary(apiKey, systemPrompt, userPrompt, tabId, url
 async function callGeminiForSummary(apiKey, systemPrompt, userPrompt, tabId, url) {
   try {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${MODELS.gemini}:generateContent?key=${apiKey}`,
       {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           system_instruction: { parts: [{ text: systemPrompt }] },
           contents: [{ parts: [{ text: userPrompt }] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: GIST_CONFIG.GEMINI_MAX_TOKENS },
+          generationConfig: { thinkingConfig: { thinkingLevel: "low" }, maxOutputTokens: GIST_CONFIG.GEMINI_MAX_TOKENS },
         }),
       }
     );
@@ -1761,7 +1769,7 @@ async function readSSEStreamText(response, extractDelta, tabId, url) {
 // ---------------------------------------------------------------------------
 
 const SPONSOR_CONFIG = {
-  CLAUDE_MAX_TOKENS: 1024,
+  CLAUDE_MAX_TOKENS: 1536,
   OPENAI_MAX_TOKENS: 1024,
   GEMINI_MAX_TOKENS: 2048,
 };
@@ -1865,7 +1873,7 @@ async function callLLMForText(provider, apiKey, systemPrompt, userPrompt, cfg) {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "gpt-4o-mini", stream: false, temperature: 0.2,
+          model: MODELS.openai, reasoning_effort: "none", stream: false,
           messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
         }),
       });
@@ -1875,13 +1883,13 @@ async function callLLMForText(provider, apiKey, systemPrompt, userPrompt, cfg) {
     }
     if (provider === "gemini") {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${MODELS.gemini}:generateContent?key=${apiKey}`,
         {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             system_instruction: { parts: [{ text: systemPrompt }] },
             contents: [{ parts: [{ text: userPrompt }] }],
-            generationConfig: { temperature: 0.2, maxOutputTokens: cfg.GEMINI_MAX_TOKENS, responseMimeType: "application/json" },
+            generationConfig: { thinkingConfig: { thinkingLevel: "low" }, maxOutputTokens: cfg.GEMINI_MAX_TOKENS, responseMimeType: "application/json" },
           }),
         }
       );
@@ -1900,7 +1908,7 @@ async function callLLMForText(provider, apiKey, systemPrompt, userPrompt, cfg) {
         "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001", max_tokens: cfg.CLAUDE_MAX_TOKENS, stream: false,
+        model: MODELS.anthropic, output_config: { effort: "low" }, max_tokens: cfg.CLAUDE_MAX_TOKENS, stream: false,
         system: systemPrompt, messages: [{ role: "user", content: userPrompt }],
       }),
     });

@@ -46,9 +46,9 @@ That's it. Headlines will be rewritten in place.
 
 | Provider | Model | Best For |
 |----------|-------|----------|
-| **Anthropic Claude** (recommended) | Claude Haiku | Best quality, great at nuance |
-| **OpenAI GPT** | GPT-4o Mini | Fast and reliable |
-| **Google Gemini** | Gemini Flash | Free tier available |
+| **Anthropic Claude** (recommended) | Claude Haiku 5.5 | Best quality, great at nuance |
+| **OpenAI GPT** | GPT-6 Luna | Fast and reliable |
+| **Google Gemini** | Gemini 3.8 Flash | Free tier available |
 
 You bring your own API key. Unbait never touches your key beyond sending it directly to the provider you chose.
 
