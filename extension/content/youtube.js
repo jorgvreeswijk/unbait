@@ -51,7 +51,10 @@ document.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
     const url = gIcon.dataset.gistUrl;
-    const title = gIcon.dataset.gistTitle;
+    // Watch-page title can change after SPA navigation; read it at click time.
+    const title = gIcon.hasAttribute("data-gist-watch")
+      ? (getWatchTitleText(gIcon.parentElement) || gIcon.dataset.gistTitle)
+      : gIcon.dataset.gistTitle;
     const videoId = gIcon.dataset.gistVideoId;
     if (url && title && videoId) handleGistYTClick(e, url, title, videoId, gIcon);
     return;
@@ -210,6 +213,7 @@ window.addEventListener("popstate", () => {
 window.addEventListener("yt-navigate-finish", () => {
   _state.applied.clear();
   setTimeout(() => initSponsorSkip(), 800);
+  scheduleWatchGistIcon();
   setTimeout(() => {
     if (!_state.isProcessing) {
       restoreCachedTitles();
@@ -257,6 +261,7 @@ setTimeout(() => {
 
 // Sponsor-skip self-init on load (watch pages only; gated by setting inside)
 setTimeout(() => initSponsorSkip(), 800);
+scheduleWatchGistIcon();
 
 // Mobile YouTube (and any SPA nav that doesn't fire yt-navigate-finish) is
 // caught by polling the URL. initSponsorSkip() dedupes by videoId, so calling
@@ -266,8 +271,98 @@ setInterval(() => {
   if (location.href !== _sponsorLastHref) {
     _sponsorLastHref = location.href;
     setTimeout(() => initSponsorSkip(), 600);
+    scheduleWatchGistIcon();
   }
 }, 1500);
+
+// ---------------------------------------------------------------------------
+// Watch page: G-icon next to the title of the video being played
+// ---------------------------------------------------------------------------
+
+const YT_WATCH_TITLE_SELECTORS = [
+  "ytd-watch-metadata #title h1",                // Desktop (2024+ layout)
+  "ytd-watch-metadata h1",
+  "#above-the-fold #title h1",
+  "#above-the-fold h1",
+  "ytd-watch-flexy #title h1",
+  "#primary h1",
+  "h1.title.ytd-video-primary-info-renderer",    // Desktop (legacy)
+  ".slim-video-information-title",               // Mobile (m.youtube.com)
+  ".slim-video-metadata-title",
+];
+
+function getWatchTitleText(titleEl) {
+  if (!titleEl) return "";
+  const clone = titleEl.cloneNode(true);
+  clone.querySelectorAll(".gist-icon, .unbait-icon").forEach((n) => n.remove());
+  return clone.textContent.replace(/\s+/g, " ").trim();
+}
+
+function findWatchTitleElement() {
+  let fallback = null;
+  for (const sel of YT_WATCH_TITLE_SELECTORS) {
+    for (const el of document.querySelectorAll(sel)) {
+      if (!getWatchTitleText(el)) continue;
+      // Prefer visible nodes (YouTube keeps stale hidden metadata around)
+      if (el.getClientRects().length > 0) return el;
+      fallback = fallback || el;
+    }
+  }
+  return fallback;
+}
+
+function injectWatchGistIcon() {
+  if (!Unbait.gistEnabled) return;
+  const existing = [...document.querySelectorAll(".gist-icon[data-gist-watch]")];
+  const videoId = window.location.pathname === "/watch" ? extractVideoId(window.location.href) : null;
+  const titleEl = videoId ? findWatchTitleElement() : null;
+
+  let keep = null;
+  for (const icon of existing) {
+    if (!keep && titleEl && icon.parentElement === titleEl && icon.dataset.gistVideoId === videoId) {
+      keep = icon;
+    } else {
+      icon.remove();
+    }
+  }
+  if (keep || !titleEl) return;
+
+  const gIcon = document.createElement("span");
+  gIcon.className = "gist-icon";
+  gIcon.title = "Get the gist of this video";
+  gIcon.setAttribute("role", "button");
+  gIcon.setAttribute("tabindex", "0");
+  gIcon.setAttribute("aria-label", "Show summary of this video");
+  gIcon.setAttribute("data-gist-watch", "");
+  gIcon.dataset.gistUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  gIcon.dataset.gistTitle = getWatchTitleText(titleEl);
+  gIcon.dataset.gistVideoId = videoId;
+  titleEl.appendChild(gIcon);
+}
+
+// The title renders late and YouTube re-renders it (dropping our icon), so
+// keep an observer on watch pages that re-ensures the icon. Throttled, not
+// debounced: YouTube mutates the DOM constantly while a video plays, which
+// would starve a debounce timer forever.
+// var (no initializer): scheduleWatchGistIcon() is called above these lines.
+var _watchGistTimer;
+var _watchGistObserver;
+function scheduleWatchGistIcon() {
+  if (_watchGistTimer) return;
+  _watchGistTimer = setTimeout(() => {
+    _watchGistTimer = null;
+    try { injectWatchGistIcon(); } catch (e) { console.debug("[Unbait YT] watch G-icon failed:", e?.message); }
+  }, 400);
+  if (!_watchGistObserver && document.body) {
+    _watchGistObserver = new MutationObserver(() => {
+      if (window.location.pathname !== "/watch") return;
+      const icon = document.querySelector(".gist-icon[data-gist-watch]");
+      if (icon && icon.dataset.gistVideoId === extractVideoId(window.location.href)) return;
+      scheduleWatchGistIcon();
+    });
+    _watchGistObserver.observe(document.body, { childList: true, subtree: true });
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Global state
@@ -1611,9 +1706,14 @@ function startObserving() {
   };
 
   // MutationObserver for new DOM elements (YouTube SPA navigation)
+  // Throttled, not debounced: while a video plays YouTube mutates the DOM
+  // continuously, which would keep resetting a debounce timer forever.
   _state.observer = new MutationObserver(() => {
-    if (_state.observerDebounce) clearTimeout(_state.observerDebounce);
-    _state.observerDebounce = setTimeout(processNewTitles, YT_CONFIG.OBSERVER_DEBOUNCE_MS);
+    if (_state.observerDebounce) return;
+    _state.observerDebounce = setTimeout(() => {
+      _state.observerDebounce = null;
+      processNewTitles();
+    }, YT_CONFIG.OBSERVER_DEBOUNCE_MS);
   });
 
   _state.observer.observe(document.body, { childList: true, subtree: true });

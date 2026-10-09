@@ -16,7 +16,7 @@ Unbait sends article metadata (headline, description, URL) to the AI provider of
 - **Always On mode** -- automatically de-clickbait your favorite sites on every visit
 - **Multi-provider support** -- choose between Anthropic Claude (recommended), OpenAI GPT, or Google Gemini
 - **YouTube support (Beta)** -- rewrite video titles, replace thumbnails with neutral frames, and use the transcript depth slider to control how deep the AI analyzes video content
-- **Gist summaries** -- click any headline for an instant AI verdict: read, optional, or skip
+- **Gist summaries** -- click any headline for an instant AI verdict: read, optional, or skip, including the YouTube video you're watching
 - **Language setting** -- get titles and summaries in your preferred language
 - **Toggle original titles** -- click any rewritten headline to see the original
 - **Per-provider caching** -- results are cached so you don't burn API credits on repeat visits
@@ -46,9 +46,9 @@ That's it. Headlines will be rewritten in place.
 
 | Provider | Model | Best For |
 |----------|-------|----------|
-| **Anthropic Claude** (recommended) | Claude Haiku | Best quality, great at nuance |
-| **OpenAI GPT** | GPT-4o Mini | Fast and reliable |
-| **Google Gemini** | Gemini Flash | Free tier available |
+| **Anthropic Claude** (recommended) | Claude Haiku 5.5 | Best quality, great at nuance |
+| **OpenAI GPT** | GPT-6 Luna | Fast and reliable |
+| **Google Gemini** | Gemini 3.8 Flash | Free tier available |
 
 You bring your own API key. Unbait never touches your key beyond sending it directly to the provider you chose.
 
