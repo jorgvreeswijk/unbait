@@ -89,13 +89,12 @@ function originsForHostname(hostname) {
 
 async function requestSitePermission(hostname) {
   try {
-    const origins = originsForHostname(hostname);
-    let hasAllUrls = false;
-    try { hasAllUrls = await chrome.permissions.contains({ origins: ["<all_urls>"] }); } catch {}
-    if (!hasAllUrls) origins.push("<all_urls>");
+    // Request directly in the click handler: awaiting contains/storage first
+    // loses Firefox's user gesture. Already-granted permissions do not prompt.
+    const origins = [...originsForHostname(hostname), "<all_urls>"];
     return await chrome.permissions.request({ origins });
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -386,12 +385,13 @@ async function reloadCurrentTab() {
 
 async function setCurrentSiteMode(mode) {
   if (!_currentHostname) return;
+  if (mode !== "off" && !await requestSitePermission(_currentHostname)) return;
   const previous = await getSiteMode(_currentHostname);
   if (previous === mode) return;
 
   // Permission: needed when going from "off" to anything else.
   if (previous === "off" && mode !== "off") {
-    // Save the intent BEFORE the dialog (popup may close mid-prompt).
+    // Only enable the site after access has been granted.
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     chrome.runtime.sendMessage({
       action: "enable-site",
@@ -401,11 +401,6 @@ async function setCurrentSiteMode(mode) {
     }).catch(() => {});
     paintSiteMode(mode);
 
-    const granted = await requestSitePermission(_currentHostname);
-    if (!granted) {
-      chrome.runtime.sendMessage({ action: "disable-site", hostname: _currentHostname }).catch(() => {});
-      paintSiteMode("off");
-    }
     return;
   }
 
@@ -522,10 +517,9 @@ async function addSiteManually() {
     else if (input.includes("/")) input = new URL("https://" + input).hostname;
   } catch { /* keep as-is */ }
 
+  if (!await requestSitePermission(input)) return;
   const sites = await getAutoSites();
   if (!sites.some((s) => s.host === input)) {
-    const granted = await requestSitePermission(input);
-    if (!granted) return;
     sites.push({ host: input, mode: "full" });
     await saveAutoSites(sites);
   }
@@ -604,16 +598,14 @@ alwaysGistToggle.addEventListener("change", async () => {
     // <all_urls> is needed for both content script registration and fetching
     // article bodies for summaries.
     try {
-      const has = await chrome.permissions.contains({ origins: ["<all_urls>"] });
-      if (!has) {
-        const granted = await chrome.permissions.request({ origins: ["<all_urls>"] });
-        if (!granted) {
-          alwaysGistToggle.checked = false;
-          return;
-        }
+      const granted = await chrome.permissions.request({ origins: ["<all_urls>"] });
+      if (!granted) {
+        alwaysGistToggle.checked = false;
+        return;
       }
     } catch {
-      // Safari / no support for optional <all_urls> — proceed.
+      alwaysGistToggle.checked = false;
+      return;
     }
   }
   await chrome.storage.local.set({ alwaysGist: enabled });
@@ -834,37 +826,50 @@ btnDeclickbait.addEventListener("click", async () => {
   btnDeclickbait.classList.add("processing");
   btnDeclickbait.textContent = "Working...";
   const _startTime = Date.now();
+  let step = "Find active page";
+  let pollInterval;
+  let timeoutId;
+  const reportError = (err) => {
+    clearInterval(pollInterval);
+    clearTimeout(timeoutId);
+    console.error(`[Unbait] ${step} failed:`, err);
+    statusEl.textContent = `${step} failed: ${err?.message || String(err)}`;
+    statusEl.className = "status-msg error";
+    btnDeclickbait.disabled = false;
+    btnDeclickbait.classList.remove("processing");
+    updateDeclickbaitButton();
+  };
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) throw new Error("No active tab is available.");
     const isYouTube = YT_HOSTS.includes(_currentHostname);
-    const scriptFile = isYouTube ? "content/youtube.js" : "content/content.js";
-    const extraFiles = isYouTube ? [] : ["content/html-utils.js"];
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ["content/shared.js", ...extraFiles, scriptFile],
-      });
-    } catch (injectErr) {
-      console.error("[Unbait] Script injection failed:", injectErr);
-      statusEl.textContent = `Injection failed: ${injectErr.message}`;
-      statusEl.className = "status-msg error";
-      btnDeclickbait.disabled = false;
-      btnDeclickbait.classList.remove("processing");
-      updateDeclickbaitButton();
-      return;
+    const scriptFile = isYouTube ? "/content/youtube.js" : "/content/content.js";
+    const extraFiles = isYouTube ? [] : ["/content/html-utils.js"];
+    step = "Load page scripts";
+    const injections = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["/content/shared.js", ...extraFiles, scriptFile],
+    });
+    // Firefox may resolve with a per-frame error instead of rejecting.
+    for (const injection of injections) {
+      if (injection.error) throw new Error(injection.error.message || String(injection.error));
     }
+    step = "Load page styles";
     await chrome.scripting.insertCSS({
       target: { tabId: tab.id },
-      files: ["content/content.css"],
+      files: ["/content/content.css"],
     });
 
     if (isYouTube) await new Promise((r) => setTimeout(r, 100));
 
+    step = "Start page scan";
     const action = isYouTube ? "de-clickbait-youtube" : "de-clickbait";
-    chrome.tabs.sendMessage(tab.id, { action }).catch(() => {});
+    chrome.tabs.sendMessage(tab.id, { action }).then((response) => {
+      if (response?.error) reportError(new Error(response.error));
+    }).catch(reportError);
 
-    const pollInterval = setInterval(async () => {
+    pollInterval = setInterval(async () => {
       try {
         const status = await chrome.runtime.sendMessage({ action: "get-status", tabId: tab.id });
         if (!status) return;
@@ -898,7 +903,7 @@ btnDeclickbait.addEventListener("click", async () => {
       } catch { /* SW inactive */ }
     }, 500);
 
-    setTimeout(() => {
+    timeoutId = setTimeout(() => {
       clearInterval(pollInterval);
       btnDeclickbait.disabled = false;
       btnDeclickbait.classList.remove("processing");
@@ -906,13 +911,8 @@ btnDeclickbait.addEventListener("click", async () => {
     }, 120000);
     return;
   } catch (err) {
-    statusEl.textContent = "Cannot connect to page. Try refreshing.";
-    statusEl.className = "status-msg error";
+    reportError(err);
   }
-
-  btnDeclickbait.disabled = false;
-  btnDeclickbait.classList.remove("processing");
-  updateDeclickbaitButton();
 });
 
 // ---------------------------------------------------------------------------

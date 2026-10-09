@@ -24,7 +24,7 @@ Unbait sends article metadata (headline, description, URL) to the AI provider of
 
 ## Quick Start
 
-1. **Install** the extension from the [Chrome Web Store](https://unbait.link) or build from source
+1. **Install** the extension from the [Chrome Web Store](https://unbait.link) or [build for Firefox](#firefox)
 2. **Get an API key** from your preferred AI provider ([Anthropic](https://console.anthropic.com/), [OpenAI](https://platform.openai.com/), or [Google AI Studio](https://aistudio.google.com/))
 3. **Paste your API key** in the extension settings
 4. **Navigate to a news site** and click **De-clickbait!**
@@ -36,6 +36,7 @@ That's it. Headlines will be rewritten in place.
 | Browser | Status |
 |---------|--------|
 | Chrome | Supported |
+| Firefox 140+ (desktop) | Supported from source; unsigned development build |
 | Safari | Supported |
 | Brave | Supported |
 | Edge | Supported |
@@ -68,12 +69,47 @@ YouTube frequently changes its DOM structure, so this feature is in beta. If som
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/jorgvreeswijk/Clickbeet.git
-   cd Clickbeet
+   git clone https://github.com/erlichmen/unbait.git
+   cd unbait
    ```
 2. Open `chrome://extensions/` in Chrome
 3. Enable **Developer mode** (top right)
-4. Click **Load unpacked** and select the project folder
+4. Click **Load unpacked** and select the `extension/` folder
+
+### Firefox
+
+1. Clone this fork and run `python3 scripts/build-firefox.py` (Python 3 required).
+2. Open `about:debugging#/runtime/this-firefox` in Firefox 140 or later.
+3. Click **Load Temporary Add-on** and choose `dist/firefox/manifest.json`.
+4. Open Unbait from the extensions menu, enter your AI provider API key, and
+   try **De-clickbait this page** on a normal news page. Accept the site-access
+   prompt when enabling a site's Full/Gist mode or Always Gist.
+
+Temporary add-ons are removed when Firefox closes. Rebuild and reload the
+add-on after editing source files. The generated `dist/unbait-firefox.zip` is
+an **unsigned** package for testing or submission to Mozilla; permanent
+installation in standard Firefox requires Mozilla signing. This fork does not
+yet have a Mozilla Add-ons listing. Android has not been tested.
+
+The Firefox build shares the `extension/` JavaScript, styles and icons. Only its
+generated manifest differs: it uses background scripts instead of a service
+worker, and declares transmission of website content, browsing URLs and API
+credentials to your selected AI provider through Firefox's data-consent system.
+See [Mozilla's background documentation](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/background)
+and [data-consent documentation](https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/).
+
+Validation:
+
+```bash
+node scripts/test-firefox-permissions.js
+node scripts/test-scan-errors.js
+node scripts/test-headline-language.js
+node scripts/test-article-context.js
+node scripts/test-title-cache.js
+python3 scripts/build-firefox.py
+node scripts/test-firefox-background.js
+npx --yes web-ext@9.4.0 lint --source-dir dist/firefox
+```
 
 ### Safari
 
@@ -82,7 +118,15 @@ YouTube frequently changes its DOM structure, so this feature is in beta. If som
 3. Build and run in Xcode
 4. Enable the extension in Safari > Settings > Extensions
 
-No build system, no bundler, no npm. It's vanilla JS all the way down.
+Vanilla JavaScript, with no bundler or runtime dependencies. Firefox packaging
+uses Python's standard library; Mozilla's optional validator uses npm.
+
+With **Language → Same as content (auto)**, news headlines follow the page's
+declared language (`<html lang>`), falling back to the original headline when
+it is unavailable. YouTube titles retain the video's original title language.
+An explicit language selection overrides Auto. After upgrading from an older
+prompt, use **Clear title cache**, reload the page, and scan again to replace
+previously cached translations.
 
 ## How It Works
 

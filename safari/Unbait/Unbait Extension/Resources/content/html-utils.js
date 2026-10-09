@@ -10,10 +10,10 @@ var HtmlExtract = (function () {
   // These values mirror what both the service worker and content script used
   // independently. Unified here so changes only need to happen in one place.
   var META_DESC_MAX_CHARS = 300;
-  var JSONLD_MAX_CHARS = 600;
-  var PARAGRAPH_MAX_CHARS = 800;
+  var JSONLD_MAX_CHARS = 6000;
+  var PARAGRAPH_MAX_CHARS = 6000;
   var MIN_PARAGRAPH_LENGTH = 40;
-  var CONTEXT_MAX_CHARS = 800;
+  var CONTEXT_MAX_CHARS = 6000;
 
   function decodeEntities(str) {
     return str
@@ -81,7 +81,9 @@ var HtmlExtract = (function () {
     }
     const bodyText = paragraphs.join(" ");
 
-    const best = jsonLd || bodyText || "";
+    // A structured description may be another teaser. Prefer the fuller text
+    // so the model can find the answer beyond the opening paragraphs.
+    const best = bodyText.length > jsonLd.length ? bodyText : jsonLd;
     const extra = metaDesc && metaDesc !== best ? metaDesc : "";
     if (best && extra) return (best + " | " + extra).substring(0, CONTEXT_MAX_CHARS);
     return (best || extra || "").substring(0, CONTEXT_MAX_CHARS);

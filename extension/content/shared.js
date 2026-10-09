@@ -20,9 +20,6 @@ window.Unbait = (function () {
   let _gistScrollTimer = null;
   const _gistPendingRequests = new Set();
 
-  // Per-prefix write queues for cache serialization
-  const _writeQueues = {};
-
   // Gist cache write queue
   let _gistCacheWriteQueue = Promise.resolve();
 
@@ -61,39 +58,12 @@ window.Unbait = (function () {
     return data[key] || {};
   }
 
-  function setCacheEntries(entries, prefix, maxAgeMs, maxEntries, provider) {
-    if (!_writeQueues[prefix]) _writeQueues[prefix] = Promise.resolve();
-
-    _writeQueues[prefix] = _writeQueues[prefix].then(async () => {
-      if (!provider) provider = await getCurrentProvider();
-      const key = cacheKeyForPrefix(prefix, provider);
-      const cache = await getCache(prefix, provider);
-      const now = Date.now();
-
-      for (const [url, value] of Object.entries(entries)) {
-        if (typeof value === "string") {
-          cache[url] = { newTitle: value, ts: now };
-        } else {
-          cache[url] = { newTitle: value.newTitle, originalTitle: value.originalTitle, ts: now };
-        }
-      }
-
-      // Prune expired
-      for (const [url, entry] of Object.entries(cache)) {
-        if (now - entry.ts > maxAgeMs) {
-          delete cache[url];
-        }
-      }
-
-      // Cap size
-      const cacheEntries = Object.entries(cache);
-      if (cacheEntries.length > maxEntries) {
-        cacheEntries.sort((a, b) => a[1].ts - b[1].ts);
-        cacheEntries.slice(0, cacheEntries.length - maxEntries).forEach(([url]) => delete cache[url]);
-      }
-
-      await chrome.storage.local.set({ [key]: cache });
-    });
+  function setCacheEntries(entries, prefix, provider) {
+    // Serialize writes across tabs in the background, not just within this page.
+    return chrome.runtime.sendMessage({ action: "cache-titles", entries, prefix, provider })
+      .then((response) => {
+        if (response?.error) throw new Error(response.error);
+      }).catch((error) => console.debug("[Unbait] Title cache write failed:", error.message));
   }
 
   // ---------------------------------------------------------------------------

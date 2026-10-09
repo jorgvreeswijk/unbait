@@ -383,7 +383,7 @@ function getCache(provider) {
 }
 
 function setCacheEntries(entries, provider) {
-  Unbait.setCacheEntries(entries, YT_CACHE_PREFIX, YT_CONFIG.CACHE_MAX_AGE_MS, YT_CONFIG.CACHE_MAX_ENTRIES, provider);
+  return Unbait.setCacheEntries(entries, YT_CACHE_PREFIX, provider);
 }
 
 async function loadCache(provider) {
@@ -1504,7 +1504,7 @@ async function fetchAndApplyResults(
     }
 
     if (Object.keys(newCacheEntries).length > 0) {
-      setCacheEntries(newCacheEntries, provider);
+      await setCacheEntries(newCacheEntries, provider);
     }
 
     _state.elements.forEach((el) => el.classList.remove("unbait-loading"));

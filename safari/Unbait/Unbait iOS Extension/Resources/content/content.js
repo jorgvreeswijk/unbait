@@ -107,7 +107,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message.action === "rewrite-complete") {
     // Final results from service worker (Safari-compatible path)
-    _state.isProcessing = false;
     const result = message.result;
     if (result && result.results) {
       for (const r of result.results) {
@@ -117,7 +116,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     // Resolve the pending promise if any
     if (_state.rewriteResolve) {
       const found = message.found || 0;
-      _state.rewriteResolve({ success: true, found, count: _state.applied.size });
+      const count = Array.from(_state.elements.values()).filter(el => el.classList.contains("unbait-replaced")).length;
+      _state.rewriteResolve(result?.error ? { error: result.error } : { success: true, found, count });
       _state.rewriteResolve = null;
     }
     // Update badge with total unbaited on page (incl. cached)
@@ -234,7 +234,7 @@ async function restoreCachedTitles() {
       const cached = cache[item.url];
       if (cached && cached.newTitle && Date.now() - cached.ts < CONFIG.CACHE_MAX_AGE_MS) {
         const originalText = cached.originalTitle || item.text;
-        renderReplacedHeadline(item.element, cached.newTitle, originalText);
+        renderReplacedHeadline(item.element, cached.newTitle, originalText, item.url);
         restoredCount++;
       }
     }
@@ -305,6 +305,7 @@ const CONFIG = {
   CACHE_MAX_AGE_MS: 7 * 24 * 60 * 60 * 1000,
   CACHE_MAX_ENTRIES: 500,
   API_TIMEOUT_MS: 120000,
+  REWRITE_BATCH_SIZE: 5,
   MIN_HEADLINE_LENGTH: 15,
   MAX_HEADLINE_LENGTH: 300,
   MIN_LARGE_LINK_LENGTH: 30,
@@ -315,7 +316,7 @@ const CONFIG = {
   MIN_PATH_LENGTH: 5,
   CONTEXT_CONCURRENCY: 3,
   CONTEXT_TIMEOUT_MS: 6000,
-  CONTEXT_MAX_BYTES: 131072,
+  CONTEXT_MAX_BYTES: 524288,
   CONTEXT_BATCH_DELAY_MS: 400,
   CONTEXT_BLOCK_COOLDOWN_MS: 10 * 60 * 1000,
 };
@@ -345,15 +346,15 @@ async function enrichHeadlinesWithContext(headlines) {
     }
     const batch = headlines.slice(i, i + CONFIG.CONTEXT_CONCURRENCY);
     const promises = batch.map(async (h) => {
+      let tid;
       try {
         const url = new URL(h.url);
         if (url.hostname !== currentHost) return h;
         const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), CONFIG.CONTEXT_TIMEOUT_MS);
+        tid = setTimeout(() => controller.abort(), CONFIG.CONTEXT_TIMEOUT_MS);
         // same-origin credentials + default referrer: a cookie-less fetch with a
         // stripped referrer is the exact crawler fingerprint bot detection keys on
         const resp = await fetch(h.url, { signal: controller.signal, credentials: "same-origin" });
-        clearTimeout(tid);
         if (resp.status === 403 || resp.status === 429 || resp.status === 503) {
           if (Date.now() >= _ctxBlockedUntil) {
             console.debug(`[Unbait] Context: HTTP ${resp.status} from ${currentHost} — pausing context fetches for ${CONFIG.CONTEXT_BLOCK_COOLDOWN_MS / 60000} min`);
@@ -377,6 +378,7 @@ async function enrichHeadlinesWithContext(headlines) {
         reader.cancel();
         return { ...h, context: HtmlExtract.extractContext(html) };
       } catch { return h; }
+      finally { clearTimeout(tid); }
     });
     results.push(...(await Promise.all(promises)));
   }
@@ -395,7 +397,7 @@ function getCache(provider) {
 }
 
 function setCacheEntries(entries, provider) {
-  Unbait.setCacheEntries(entries, CACHE_PREFIX, CONFIG.CACHE_MAX_AGE_MS, CONFIG.CACHE_MAX_ENTRIES, provider);
+  return Unbait.setCacheEntries(entries, CACHE_PREFIX, provider);
 }
 
 /**
@@ -408,7 +410,7 @@ async function loadCache(provider) {
   const oldData = await chrome.storage.local.get("unbait_cache");
   if (oldData.unbait_cache && Object.keys(oldData.unbait_cache).length > 0) {
     const oldCache = oldData.unbait_cache;
-    setCacheEntries(
+    await setCacheEntries(
       Object.fromEntries(Object.entries(oldCache).map(([url, entry]) => [url, entry.newTitle])),
       "anthropic"
     );
@@ -432,6 +434,7 @@ function categorizeHeadlines(headlines, cache) {
   headlines.forEach((item, index) => {
     const id = `headline-${index}`;
     _state.elements.set(id, item.element);
+    item.element.dataset.unbaitUrl = item.url;
     // Only set original if not already stored (defense against race conditions)
     if (!item.element.dataset.unbaitOriginal) {
       item.element.dataset.unbaitOriginal = item.text;
@@ -457,7 +460,8 @@ function categorizeHeadlines(headlines, cache) {
 /**
  * Send uncached headlines to service worker, handle timeout and responses.
  */
-async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFound) {
+async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFound, hasMore = false) {
+  let timeoutId;
   try {
     console.debug(`[Unbait] Sending ${uncachedData.length} headlines to service worker...`);
 
@@ -470,7 +474,13 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
     try {
       response = await chrome.runtime.sendMessage({
         action: "rewrite-headlines",
-        headlines: uncachedData,
+        totalFound,
+        countBefore: cachedCount,
+        hasMore,
+        headlines: uncachedData.map((headline) => ({
+          ...headline,
+          pageLanguage: document.documentElement.lang,
+        })),
       });
     } catch (e) {
       _state.rewriteResolve = null;
@@ -484,13 +494,12 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
       const result = await Promise.race([
         completePromise,
         new Promise((resolve) =>
-          setTimeout(() => {
+          timeoutId = setTimeout(() => {
             _state.rewriteResolve = null;
-            resolve({ success: true, found: totalFound, count: _state.applied.size });
+            resolve({ error: "Timed out waiting for headlines. Completed titles have been kept." });
           }, CONFIG.API_TIMEOUT_MS)
         ),
       ]);
-      _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
       return result;
     }
 
@@ -498,12 +507,10 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
     _state.rewriteResolve = null;
 
     if (!response) {
-      _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
-      return { success: true, found: totalFound, count: _state.applied.size };
+      return { error: "No response from Unbait. Completed titles have been kept." };
     }
 
     if (response.error) {
-      _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
       return { error: response.error };
     }
 
@@ -521,10 +528,8 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
     }
 
     if (Object.keys(newCacheEntries).length > 0) {
-      setCacheEntries(newCacheEntries, provider);
+      await setCacheEntries(newCacheEntries, provider);
     }
-
-    _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
 
     let totalReplaced = 0;
     _state.elements.forEach((el) => {
@@ -533,8 +538,13 @@ async function fetchAndApplyResults(uncachedData, provider, cachedCount, totalFo
 
     return { success: true, found: totalFound, count: totalReplaced };
   } catch (err) {
-    _state.elements.forEach((el) => el.classList.remove("unbait-loading"));
     return { error: `Fout: ${err.message}` };
+  } finally {
+    clearTimeout(timeoutId);
+    _state.rewriteResolve = null;
+    for (const headline of uncachedData) {
+      _state.elements.get(headline.id)?.classList.remove("unbait-loading");
+    }
   }
 }
 
@@ -559,10 +569,21 @@ async function processHeadlines() {
     return { success: true, found: headlines.length, count: cachedCount, cached: true };
   }
 
-  // Enrich with article context from content script (Safari-compatible)
-  const enriched = await enrichHeadlinesWithContext(uncachedData);
-
-  return fetchAndApplyResults(enriched, provider, cachedCount, headlines.length);
+  // Start rewriting after a small group has context, rather than waiting for
+  // every article on a large homepage. Streamed titles render within each group.
+  let result = { success: true, found: headlines.length, count: cachedCount };
+  try {
+    for (let i = 0; i < uncachedData.length; i += CONFIG.REWRITE_BATCH_SIZE) {
+      const batch = uncachedData.slice(i, i + CONFIG.REWRITE_BATCH_SIZE);
+      const enriched = await enrichHeadlinesWithContext(batch);
+      result = await fetchAndApplyResults(enriched, provider, result.count, headlines.length,
+        i + batch.length < uncachedData.length);
+      if (result.error) break;
+    }
+    return result;
+  } finally {
+    _state.elements.forEach(el => el.classList.remove("unbait-loading"));
+  }
 }
 
 /**
@@ -683,10 +704,10 @@ function setTitleText(el, text) {
 /**
  * Shared rendering logic for replacing a headline with a new title.
  */
-function renderReplacedHeadline(el, newTitle, originalText) {
+function renderReplacedHeadline(el, newTitle, originalText, articleUrl) {
   // Preserve existing original if already set (prevents overwrite on re-render/back-nav)
   const existingOriginal = el.dataset.unbaitOriginal;
-  const url = el.closest("a")?.href || el.querySelector("a")?.href;
+  const url = articleUrl || el.dataset.unbaitUrl || el.closest("a")?.href || el.querySelector("a")?.href;
   const mapOriginal = url && _state.titles.get(url)?.original;
   const trueOriginal = existingOriginal || mapOriginal || originalText;
 
@@ -696,10 +717,10 @@ function renderReplacedHeadline(el, newTitle, originalText) {
   }
 
   el.classList.add("unbait-replaced");
-  el.title = `Origineel: ${trueOriginal}`;
   el.dataset.unbaitOriginal = trueOriginal;
   el.dataset.unbaitNew = newTitle;
   if (url) el.dataset.unbaitUrl = url;
+  setHeadlineTooltip(el, `Original: ${trueOriginal}`);
 
   // Remove ALL existing icons before adding new one (handles edge-case duplicates)
   // Check self, parent (up to 3 levels), and siblings for stale G/U icons
@@ -777,7 +798,7 @@ function applyStreamResult(result) {
   if (applyResult(result)) {
     const el = _state.elements.get(result.id);
     if (el) {
-      const url = el.closest("a")?.href || el.querySelector("a")?.href;
+      const url = el.dataset.unbaitUrl || el.closest("a")?.href || el.querySelector("a")?.href;
       if (url && result.newTitle) {
         const originalTitle = el.dataset.unbaitOriginal || el.textContent;
         setCacheEntries({ [url]: { newTitle: result.newTitle, originalTitle } });
@@ -786,9 +807,27 @@ function applyStreamResult(result) {
   }
 }
 
-/**
- * Toggle between original and new title.
- */
+// Some cards (e.g. Upworthy) put a sibling link over the heading. Give the
+// actual hover target the same native tooltip, without touching category links.
+function setHeadlineTooltip(el, text) {
+  el.title = text;
+  const url = el.dataset.unbaitUrl;
+  if (!url) return;
+  const enclosingLink = el.closest("a");
+  if (enclosingLink?.href === url) {
+    enclosingLink.title = text;
+    return;
+  }
+  for (let node = el, depth = 0; node && depth < 6; node = node.parentElement, depth++) {
+    const links = Array.from(node.querySelectorAll("a[href]")).filter(link => link.href === url);
+    if (links.length) {
+      links.forEach(link => { link.title = text; });
+      break;
+    }
+  }
+}
+
+/** Toggle between original and new title. */
 function toggleTitle(el, icon) {
   // Try data attributes first, fall back to Map (survives React re-renders)
   let original = el.dataset.unbaitOriginal;
@@ -813,13 +852,13 @@ function toggleTitle(el, icon) {
   if (isShowingOriginal) {
     // Show unbait title
     setTitleText(el, rewritten);
-    el.title = `Original: ${original}`;
+    setHeadlineTooltip(el, `Original: ${original}`);
     icon.title = getIconTooltip(false);
     icon.classList.remove("showing-original");
   } else {
     // Show original text
     setTitleText(el, original);
-    el.title = `Unbait: ${rewritten}`;
+    setHeadlineTooltip(el, `Unbait: ${rewritten}`);
     icon.title = getIconTooltip(true);
     icon.classList.add("showing-original");
   }
